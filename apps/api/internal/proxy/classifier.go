@@ -398,7 +398,17 @@ func estimateTokens(charCount int) int {
 func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
 	text := taskText(messages)
 	charCount := totalCharCount(messages)
-	msgCount := messageCount(messages)
+
+	// Complexity looks at the conversation only: a client's fixed system
+	// prompt says nothing about how hard the current request is.
+	var conversation []map[string]interface{}
+	for _, m := range messages {
+		if role, _ := m["role"].(string); role != "system" && role != "developer" {
+			conversation = append(conversation, m)
+		}
+	}
+	convoChars := totalCharCount(conversation)
+	msgCount := messageCount(conversation)
 
 	hasCode := countCodeBlocks(text) > 0
 	hasFiles := hasFileExtensions(text)
@@ -443,10 +453,10 @@ func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
 
 	// Determine complexity
 	complexityScore := 0
-	if charCount > 4000 {
+	if convoChars > 4000 {
 		complexityScore++
 	}
-	if charCount > 16000 {
+	if convoChars > 16000 {
 		complexityScore += 2
 	}
 	if msgCount > 10 {
@@ -455,7 +465,7 @@ func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
 	if msgCount > 20 {
 		complexityScore++
 	}
-	if hasCode && charCount > 4000 {
+	if hasCode && convoChars > 4000 {
 		complexityScore++ // code-heavy = more complex
 	}
 

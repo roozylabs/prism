@@ -241,3 +241,21 @@ func TestClassifyRequest_NoUserMessageFallsBackToAllText(t *testing.T) {
 		t.Errorf("expected summarization fallback, got %s", chars.Task)
 	}
 }
+
+func TestClassifyRequest_SystemPromptDoesNotRaiseComplexity(t *testing.T) {
+	longSystem := ""
+	for i := 0; i < 500; i++ {
+		longSystem += "Always follow the repository conventions. "
+	}
+	req := []map[string]interface{}{
+		{"role": "system", "content": longSystem},
+		msg("Rename this variable please."),
+	}
+	chars := ClassifyRequest(req)
+	if chars.Complexity != ComplexityLow {
+		t.Errorf("expected low complexity despite a long system prompt, got %s", chars.Complexity)
+	}
+	if chars.ContextTokens < len(longSystem)/4 {
+		t.Errorf("context tokens must still count the system prompt, got %d", chars.ContextTokens)
+	}
+}

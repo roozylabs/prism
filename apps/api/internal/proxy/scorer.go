@@ -92,6 +92,8 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 		}
 	}
 
+	weights := complexityAdjustedWeights(policy, chars.Complexity)
+
 	// Find max prices among candidates for normalization
 	maxInput := 0.0
 	maxOutput := 0.0
@@ -110,18 +112,18 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 
 		// Task match score
 		taskScore := taskMatchScore(m, chars.Task)
-		taskWeight := policy.Weights["task_match"]
+		taskWeight := weights["task_match"]
 
 		// Quality score (already 0-1)
 		qualityScore := m.QualityScore
-		qualityWeight := policy.Weights["quality"]
+		qualityWeight := weights["quality"]
 
 		// Cost score (normalized 0-1, lower price = higher score)
 		costScore := 0.0
 		if maxInput+maxOutput > 0 {
 			costScore = 1.0 - (m.InputPricePer1M+m.OutputPricePer1M)/(maxInput+maxOutput)
 		}
-		costWeight := policy.Weights["cost"]
+		costWeight := weights["cost"]
 
 		// Speed score (dynamic empirical adjustment if telemetry sample available)
 		speedScore := m.SpeedScore
@@ -147,11 +149,14 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 				}
 			}
 		}
-		speedWeight := policy.Weights["speed"]
+		speedWeight := weights["speed"]
 
 		score := taskScore*taskWeight + qualityScore*qualityWeight + costScore*costWeight + speedScore*speedWeight
 
 		reasons = append(reasons, "task="+string(chars.Task))
+		if chars.Complexity == ComplexityLow || chars.Complexity == ComplexityHigh {
+			reasons = append(reasons, "complexity="+string(chars.Complexity))
+		}
 		reasons = append(reasons, "quality="+formatFloat(qualityScore))
 
 		scores = append(scores, &ModelScore{
@@ -173,6 +178,50 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 	}
 
 	return scores
+}
+
+// complexityWeightMultipliers shift a policy's weights by request complexity:
+// hard requests lean toward capability (task match, quality), easy requests
+// toward cost and speed. Medium complexity leaves the policy unchanged.
+var complexityWeightMultipliers = map[Complexity]map[string]float64{
+	ComplexityHigh: {"task_match": 1.25, "quality": 1.25, "cost": 0.6, "speed": 0.6},
+	ComplexityLow:  {"task_match": 0.85, "quality": 0.85, "cost": 1.25, "speed": 1.25},
+}
+
+// complexityAdjustedWeights returns the policy weights shifted by complexity
+// and rescaled to the policy's original total, so scores stay comparable.
+// The optional "complexity_sensitivity" constraint scales the shift: 0 turns
+// it off, 1 (the default) applies it in full.
+func complexityAdjustedWeights(policy *RoutingPolicy, complexity Complexity) map[string]float64 {
+	multipliers, ok := complexityWeightMultipliers[complexity]
+	sensitivity := 1.0
+	if v, set := policy.Constraints["complexity_sensitivity"]; set {
+		sensitivity = max(v, 0)
+	}
+	if !ok || sensitivity == 0 {
+		return policy.Weights
+	}
+
+	adjusted := make(map[string]float64, len(policy.Weights))
+	originalTotal, adjustedTotal := 0.0, 0.0
+	for key, w := range policy.Weights {
+		m, scaled := multipliers[key]
+		if !scaled {
+			adjusted[key] = w
+			continue
+		}
+		adjusted[key] = w * max(1+sensitivity*(m-1), 0)
+		originalTotal += w
+		adjustedTotal += adjusted[key]
+	}
+	if adjustedTotal > 0 {
+		for key := range multipliers {
+			if _, present := adjusted[key]; present {
+				adjusted[key] *= originalTotal / adjustedTotal
+			}
+		}
+	}
+	return adjusted
 }
 
 // taskMatchScore returns the model's score for the detected task type.
