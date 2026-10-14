@@ -38,6 +38,23 @@ type RoutingDecision struct {
 	ScoresBreakdown  map[string]interface{}
 }
 
+// DefaultRoutingPolicy is the built-in "balanced" policy used when no routing
+// policy is configured in the database.
+func DefaultRoutingPolicy() *RoutingPolicy {
+	return &RoutingPolicy{
+		Name: "balanced",
+		Weights: map[string]float64{
+			"task_match": 0.35,
+			"quality":    0.35,
+			"cost":       0.15,
+			"speed":      0.15,
+		},
+		Constraints: map[string]float64{
+			"max_cost_per_request": 0.05,
+		},
+	}
+}
+
 func ScoreCandidates(candidates []*models.Model, chars RequestCharacteristics, policy *RoutingPolicy) []*ModelScore {
 	return ScoreCandidatesWithTelemetry(candidates, chars, policy, nil)
 }
