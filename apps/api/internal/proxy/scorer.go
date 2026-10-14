@@ -75,7 +75,7 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 		}
 	}
 
-	weights := complexityAdjustedWeights(policy, chars.Complexity)
+	weights := taskAwareWeights(complexityAdjustedWeights(policy, chars.Complexity), chars.Task)
 
 	// Find max prices among candidates for normalization
 	maxInput := 0.0
@@ -204,6 +204,36 @@ func complexityAdjustedWeights(policy *RoutingPolicy, complexity Complexity) map
 			}
 		}
 	}
+	return adjusted
+}
+
+// hasCapabilityScore reports whether models carry a dedicated score for the
+// task. Other tasks fall back to the quality score in taskMatchScore.
+func hasCapabilityScore(task TaskType) bool {
+	return task == TaskCoding || task == TaskReasoning || task == TaskWriting
+}
+
+// taskAwareWeights moves the task_match weight onto quality, cost and speed
+// (in proportion to their weights) for tasks without a dedicated capability
+// score. Otherwise task_match would score quality a second time.
+func taskAwareWeights(weights map[string]float64, task TaskType) map[string]float64 {
+	taskWeight := weights["task_match"]
+	if hasCapabilityScore(task) || taskWeight == 0 {
+		return weights
+	}
+	othersTotal := weights["quality"] + weights["cost"] + weights["speed"]
+	if othersTotal <= 0 {
+		return weights
+	}
+
+	adjusted := make(map[string]float64, len(weights))
+	for key, w := range weights {
+		adjusted[key] = w
+	}
+	for _, key := range []string{"quality", "cost", "speed"} {
+		adjusted[key] += taskWeight * weights[key] / othersTotal
+	}
+	adjusted["task_match"] = 0
 	return adjusted
 }
 

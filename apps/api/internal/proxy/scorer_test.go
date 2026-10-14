@@ -411,3 +411,38 @@ func TestScoreCandidates_ComplexityChangesWinner(t *testing.T) {
 		t.Errorf("high complexity: expected frontier-model, got %s", high[0].Model.Slug)
 	}
 }
+
+func TestTaskAwareWeights_GenericTaskDropsTaskMatch(t *testing.T) {
+	weights := balancedPolicy().Weights
+
+	got := taskAwareWeights(weights, TaskSummarize)
+	if got["task_match"] != 0 {
+		t.Errorf("task_match should be 0 for a task without a capability score, got %v", got["task_match"])
+	}
+	if total := weightTotal(got); total < 0.999 || total > 1.001 {
+		t.Errorf("weights should keep their total of 1.0, got %.4f", total)
+	}
+	// quality, cost and speed keep their relative proportions (0.35:0.15:0.15)
+	if ratio := got["quality"] / got["cost"]; ratio < 2.33 || ratio > 2.34 {
+		t.Errorf("quality:cost ratio should stay 7:3, got %.4f", ratio)
+	}
+	if weights["task_match"] != 0.35 {
+		t.Errorf("input weights must not be mutated, got %v", weights)
+	}
+
+	coding := taskAwareWeights(weights, TaskCoding)
+	if coding["task_match"] != 0.35 {
+		t.Errorf("coding has a capability score and should keep task_match, got %v", coding)
+	}
+}
+
+func TestScoreCandidates_GenericTaskDoesNotDoubleCountQuality(t *testing.T) {
+	m := makeModel("only-model", 1.00, 2.00, 0.80, 0.50, 0.60, 128000)
+	policy := &RoutingPolicy{Weights: map[string]float64{"task_match": 0.5, "quality": 0.5}}
+
+	scores := ScoreCandidates([]*models.Model{m}, RequestCharacteristics{Task: TaskTranslation, ContextTokens: 100}, policy)
+	// With task_match folded into quality, the score is just the quality score.
+	if got := scores[0].Score; got < 0.799 || got > 0.801 {
+		t.Errorf("expected score 0.80 (quality only), got %.4f", got)
+	}
+}
