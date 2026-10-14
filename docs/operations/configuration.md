@@ -34,9 +34,31 @@ The root `.env.example` file defines configuration parameters classified into 6 
 
 The API gateway validates mandatory configuration at startup in `config.Load()` (`apps/api/internal/config/config.go`):
 
-1. **`ENCRYPTION_KEY` Validation**: Must be set and non-default in `production` mode.
+1. **`ENCRYPTION_KEY` Validation** (`Config.Validate`, called by `cmd/server` before migrations or connections): outside `APP_ENV=development` the server exits if the key is empty, shorter than 32 characters, low-variety, or one of the keys previously committed to this repository. In `development` it only logs a warning. Generate a key with `openssl rand -hex 32`.
 2. **`JWT_SECRET` Validation**: Must be set and non-default.
 3. **Database URL Validation**: Must contain valid PostgreSQL connection string schema.
 4. **Redis URL Validation**: Must contain valid Redis host & password schema.
 
 If any required secret is missing or set to placeholder defaults in production mode, the application halts immediately with exit code 1 to prevent silent security degradation.
+
+---
+
+## Re-encrypting Stored Secrets (`cmd/reencrypt`)
+
+`DecryptAES256GCM` accepts only values encrypted with the configured `ENCRYPTION_KEY`. Plaintext rows and rows encrypted with an older key are rejected, and the proxy marks such credentials `invalid` instead of sending them upstream. Older releases stored some provider keys in plaintext and silently fell back to hardcoded keys, so run the one-off migration **before** deploying this change:
+
+```bash
+# Dry run: reports what would change, writes nothing
+DATABASE_URL=... ENCRYPTION_KEY=<new key> LEGACY_ENCRYPTION_KEYS=<old key>[,<older key>] ./reencrypt
+
+# Apply in a single transaction
+DATABASE_URL=... ENCRYPTION_KEY=<new key> LEGACY_ENCRYPTION_KEYS=<old key> ./reencrypt -apply
+```
+
+- The binary ships in the API image at `/app/reencrypt` (or run `go run ./cmd/reencrypt` from `apps/api`).
+- It covers `credentials.encrypted_key`, `credentials.encrypted_metadata`, `tool_backends.auth_token_encrypted`, `resource_backends.auth_token_encrypted`, `resource_backends.connection_string_encrypted`, `mcp_servers.auth_token_encrypted`, and `mcp_servers.headers_encrypted`.
+- Values that look like ciphertext but no supplied key opens are reported and left untouched; re-enter those secrets.
+- `-reactivate` sets credentials that the new server already marked `invalid` back to `active` when their key was migrated.
+- Use the same procedure to rotate `ENCRYPTION_KEY`: set the new key as `ENCRYPTION_KEY` and the old one in `LEGACY_ENCRYPTION_KEYS`.
+
+**Compromised keys:** the fallback keys that used to be hardcoded in `internal/utils/crypto.go` (and the `secret` / placeholder defaults) are public. If your deployment ever used one of them, treat every secret encrypted with it as exposed: re-encrypt onto a new key and rotate the underlying provider API keys, tokens, and connection strings.

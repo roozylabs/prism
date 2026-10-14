@@ -42,6 +42,12 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
+	// The migrator job does not handle secrets, so only the server validates them.
+	if !*migrateOnly {
+		if err := cfg.Validate(); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	// Run migrations. When --migrate-only is given (one-shot migrator job),
 	// apply migrations and exit without binding the HTTP server so that

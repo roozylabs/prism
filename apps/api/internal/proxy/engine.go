@@ -395,7 +395,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			}
 			decryptedJSON, err := utils.DecryptAES256GCM(route.Credential.EncryptedMetadata.String, e.encKey)
 			if err != nil {
-				lastErr = fmt.Errorf("decrypt metadata: %w", err)
+				lastErr = e.markUndecryptable(ctx, route.Credential, "metadata", err)
 				continue
 			}
 			var meta map[string]string
@@ -413,12 +413,8 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			var err error
 			apiKey, err = utils.DecryptAES256GCM(route.Credential.EncryptedKey, e.encKey)
 			if err != nil {
-				if route.Credential.EncryptedKey != "" {
-					apiKey = route.Credential.EncryptedKey
-				} else {
-					lastErr = fmt.Errorf("decrypt credential: %w", err)
-					continue
-				}
+				lastErr = e.markUndecryptable(ctx, route.Credential, "key", err)
+				continue
 			}
 		}
 
@@ -765,7 +761,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			}
 			decryptedJSON, err := utils.DecryptAES256GCM(route.Credential.EncryptedMetadata.String, e.encKey)
 			if err != nil {
-				lastErr = fmt.Errorf("decrypt metadata: %w", err)
+				lastErr = e.markUndecryptable(c.Request.Context(), route.Credential, "metadata", err)
 				continue
 			}
 			var meta map[string]string
@@ -783,12 +779,8 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			var err error
 			apiKey, err = utils.DecryptAES256GCM(route.Credential.EncryptedKey, e.encKey)
 			if err != nil {
-				if route.Credential.EncryptedKey != "" {
-					apiKey = route.Credential.EncryptedKey
-				} else {
-					lastErr = fmt.Errorf("decrypt credential: %w", err)
-					continue
-				}
+				lastErr = e.markUndecryptable(c.Request.Context(), route.Credential, "key", err)
+				continue
 			}
 		}
 
@@ -1157,6 +1149,18 @@ func (e *Engine) backfillActualCost(requestID string, cost float64) {
 			log.Printf("backfill actual cost: %v", err)
 		}
 	}(requestID, cost)
+}
+
+// markUndecryptable marks a credential whose stored secret cannot be decrypted
+// with the configured ENCRYPTION_KEY as invalid, so it drops out of routing
+// until it is re-entered or re-encrypted (see cmd/reencrypt).
+func (e *Engine) markUndecryptable(ctx context.Context, cred *models.Credential, field string, err error) error {
+	log.Printf("[Proxy] credential %s: stored %s cannot be decrypted, marking invalid: %v", cred.ID, field, err)
+	if e.creds != nil {
+		_ = e.creds.UpdateStatus(ctx, cred.ID, models.CredentialStatusInvalid)
+	}
+	RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventFailure, cred.ID, cred.ProviderID)
+	return fmt.Errorf("decrypt credential %s %s: %w", cred.ID, field, err)
 }
 
 func getCredentialDisplayName(c *models.Credential) string {
