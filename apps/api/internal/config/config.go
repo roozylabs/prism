@@ -1,10 +1,13 @@
 package config
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"strconv"
 
 	"github.com/joho/godotenv"
+	"github.com/roozylabs/prism/internal/utils"
 )
 
 type Config struct {
@@ -37,6 +40,25 @@ func Load() (*Config, error) {
 		RateLimitPerKey: getEnvInt("RATE_LIMIT_PER_KEY", 100),
 		RunMigrations:   getEnvBool("RUN_MIGRATIONS", true),
 	}, nil
+}
+
+// IsDevelopment reports whether the app runs with APP_ENV=development.
+func (c *Config) IsDevelopment() bool {
+	return c.AppEnv == "development"
+}
+
+// Validate checks secrets required to serve traffic. Outside development an
+// empty, weak, or publicly known ENCRYPTION_KEY is a fatal error; in
+// development it only logs a warning.
+func (c *Config) Validate() error {
+	if err := utils.ValidateEncryptionKey(c.EncryptionKey); err != nil {
+		if c.IsDevelopment() {
+			log.Printf("[Config Warning] %v (allowed only because APP_ENV=development)", err)
+			return nil
+		}
+		return fmt.Errorf("invalid configuration (APP_ENV=%s): %w", c.AppEnv, err)
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {
