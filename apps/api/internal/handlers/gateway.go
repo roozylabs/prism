@@ -35,7 +35,7 @@ type GatewayHandler struct {
 	modelRepo       *repository.ModelRepository
 	agentRepo       *repository.AgentRepository
 	orchestrator    *service.ExecutionOrchestrator
-	jobQueue        *queue.JobQueue
+	jobQueue        asyncJobStore
 	mcpServerRepo   *repository.MCPServerRepository
 	mcpToolRepo     *repository.MCPToolRepository
 }
@@ -75,7 +75,18 @@ func NewGatewayHandler(
 	}
 }
 
+// asyncJobStore is the subset of *queue.JobQueue used by the async job handlers.
+type asyncJobStore interface {
+	EnqueueJob(ctx context.Context, job *queue.AsyncJob) error
+	GetJob(ctx context.Context, jobID string) (*queue.AsyncJob, error)
+}
+
 func (h *GatewayHandler) SetJobQueue(q *queue.JobQueue) {
+	if q == nil {
+		// Avoid storing a typed nil, which would make the nil checks below pass.
+		h.jobQueue = nil
+		return
+	}
 	h.jobQueue = q
 }
 
@@ -383,7 +394,8 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 	if requestID == "" {
 		requestID = fmt.Sprintf("req_%d", time.Now().UnixNano())
 	}
-	jobID := fmt.Sprintf("job_%d_%s", time.Now().Unix(), utils.HashSHA256(requestID)[:8])
+	// Job IDs are random so they cannot be predicted from the client-supplied X-Request-ID.
+	jobID := "job_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	agentID := c.GetHeader("X-Prism-Agent-ID")
 	if agentID == "" {
@@ -422,7 +434,6 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
-
 
 	if err := h.jobQueue.EnqueueJob(c.Request.Context(), job); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -505,13 +516,37 @@ func (h *GatewayHandler) GetJobStatus(c *gin.Context) {
 		return
 	}
 
+	// A job owned by another user or organization is reported exactly like a
+	// missing one so that job IDs cannot be probed for existence.
 	job, err := h.jobQueue.GetJob(c.Request.Context(), jobID)
-	if err != nil || job == nil {
+	if err != nil || job == nil || !canAccessJob(c, job) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"message": "Job not found or expired", "type": "not_found"}})
 		return
 	}
 
 	c.JSON(http.StatusOK, job)
+}
+
+// jobCallerUserID returns the authenticated caller: the gateway key's owner on
+// gateway routes, or the session user on dashboard routes.
+func jobCallerUserID(c *gin.Context) string {
+	if val, exists := c.Get("gatewayKey"); exists {
+		if key, ok := val.(*models.GatewayAPIKey); ok && key != nil {
+			return key.UserID
+		}
+	}
+	return c.GetString("userId")
+}
+
+func canAccessJob(c *gin.Context, job *queue.AsyncJob) bool {
+	callerID := jobCallerUserID(c)
+	if callerID == "" || job.UserID != callerID {
+		return false
+	}
+	if job.TenantCtx.OrgID != "" && middleware.GetTenantContext(c).OrgID != job.TenantCtx.OrgID {
+		return false
+	}
+	return true
 }
 
 // Models godoc
