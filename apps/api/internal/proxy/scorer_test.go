@@ -343,3 +343,71 @@ func TestScoreCandidatesWithBudget_MissingHealthDefaultsToHealthy(t *testing.T) 
 		}
 	}
 }
+
+func balancedPolicy() *RoutingPolicy {
+	return &RoutingPolicy{
+		Name:        "balanced",
+		Weights:     map[string]float64{"task_match": 0.35, "quality": 0.35, "cost": 0.15, "speed": 0.15},
+		Constraints: map[string]float64{"max_cost_per_request": 0.05},
+	}
+}
+
+func weightTotal(w map[string]float64) float64 {
+	total := 0.0
+	for _, v := range w {
+		total += v
+	}
+	return total
+}
+
+func TestComplexityAdjustedWeights(t *testing.T) {
+	policy := balancedPolicy()
+
+	medium := complexityAdjustedWeights(policy, ComplexityMedium)
+	if medium["quality"] != 0.35 || medium["cost"] != 0.15 {
+		t.Errorf("medium complexity should keep policy weights, got %v", medium)
+	}
+
+	high := complexityAdjustedWeights(policy, ComplexityHigh)
+	if !(high["quality"] > 0.35 && high["task_match"] > 0.35 && high["cost"] < 0.15 && high["speed"] < 0.15) {
+		t.Errorf("high complexity should favor quality and task match, got %v", high)
+	}
+	low := complexityAdjustedWeights(policy, ComplexityLow)
+	if !(low["quality"] < 0.35 && low["cost"] > 0.15 && low["speed"] > 0.15) {
+		t.Errorf("low complexity should favor cost and speed, got %v", low)
+	}
+	for name, w := range map[string]map[string]float64{"high": high, "low": low} {
+		if total := weightTotal(w); total < 0.999 || total > 1.001 {
+			t.Errorf("%s: weights should keep the policy total of 1.0, got %.4f", name, total)
+		}
+	}
+	if policy.Weights["quality"] != 0.35 {
+		t.Errorf("policy weights must not be mutated, got %v", policy.Weights)
+	}
+}
+
+func TestComplexityAdjustedWeights_SensitivityZeroDisables(t *testing.T) {
+	policy := balancedPolicy()
+	policy.Constraints["complexity_sensitivity"] = 0
+	got := complexityAdjustedWeights(policy, ComplexityHigh)
+	if got["quality"] != 0.35 || got["cost"] != 0.15 {
+		t.Errorf("sensitivity 0 should keep policy weights, got %v", got)
+	}
+}
+
+func TestScoreCandidates_ComplexityChangesWinner(t *testing.T) {
+	candidates := []*models.Model{
+		makeModel("small-model", 0.15, 0.60, 0.72, 0.75, 0.92, 128000),
+		makeModel("frontier-model", 3.00, 15.00, 0.93, 0.95, 0.78, 200000),
+	}
+	policy := balancedPolicy()
+
+	low := ScoreCandidates(candidates, RequestCharacteristics{Task: TaskCoding, Complexity: ComplexityLow, ContextTokens: 500}, policy)
+	if low[0].Model.Slug != "small-model" {
+		t.Errorf("low complexity: expected small-model, got %s", low[0].Model.Slug)
+	}
+	high := ScoreCandidates(candidates, RequestCharacteristics{Task: TaskCoding, Complexity: ComplexityHigh, ContextTokens: 500}, policy)
+	if high[0].Model.Slug != "frontier-model" {
+		t.Errorf("high complexity: expected frontier-model, got %s", high[0].Model.Slug)
+	}
+}
