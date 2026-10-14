@@ -66,6 +66,49 @@ func extractMessages(messages []map[string]interface{}) string {
 	return sb.String()
 }
 
+// messageText returns a message's text, from a string content or from the
+// "text" parts of an array content.
+func messageText(m map[string]interface{}) string {
+	switch content := m["content"].(type) {
+	case string:
+		return content
+	case []interface{}:
+		var parts []string
+		for _, p := range content {
+			part, ok := p.(map[string]interface{})
+			if !ok || part["type"] != "text" {
+				continue
+			}
+			if text, ok := part["text"].(string); ok {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+// taskText returns the text the task type is detected from: the latest user
+// message with text. System prompts and earlier turns are left out so that a
+// client's fixed system prompt (e.g. a coding agent's) does not decide the task
+// of every request. Falls back to all messages when there is no user text.
+func taskText(messages []map[string]interface{}) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if role, _ := messages[i]["role"].(string); role != "user" {
+			continue
+		}
+		if text := messageText(messages[i]); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return extractMessages(messages)
+}
+
+// taskPriority breaks ties between equally scored task types; earlier wins.
+var taskPriority = []TaskType{
+	TaskCoding, TaskTranslation, TaskSummarize, TaskExtraction, TaskReasoning, TaskWriting,
+}
+
 // messageCount returns the number of messages in the conversation.
 func messageCount(messages []map[string]interface{}) int {
 	return len(messages)
@@ -353,7 +396,7 @@ func estimateTokens(charCount int) int {
 
 // ClassifyRequest analyzes a request and returns its characteristics.
 func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
-	text := extractMessages(messages)
+	text := taskText(messages)
 	charCount := totalCharCount(messages)
 	msgCount := messageCount(messages)
 
@@ -388,11 +431,11 @@ func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
 		scores[TaskWriting] += 2.0
 	}
 
-	// Pick highest scoring task
+	// Pick highest scoring task; iterate in priority order so ties are deterministic
 	task := TaskGeneral
 	bestScore := 0.0
-	for t, s := range scores {
-		if s > bestScore {
+	for _, t := range taskPriority {
+		if s := scores[t]; s > bestScore {
 			bestScore = s
 			task = t
 		}
