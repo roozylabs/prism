@@ -178,9 +178,7 @@ func TestScoreCandidates_CostNormalization(t *testing.T) {
 	if scores[0].Model.Slug != "m1" {
 		t.Errorf("expected m1 to win cost-only scoring, got %s", scores[0].Model.Slug)
 	}
-	// Verify cost score: m1 total price=4.0, m2 total price=8.0, max=8.0
-	// m1 cost_score = 1.0 - 4/8 = 0.5
-	// m2 cost_score = 1.0 - 8/8 = 0.0
+	// m1 has the lower blended price (1.0 + 3.0*0.3) than m2 (2.0 + 6.0*0.3)
 	if scores[0].Score <= scores[1].Score {
 		t.Errorf("m1 (%.4f) should score higher than m2 (%.4f)", scores[0].Score, scores[1].Score)
 	}
@@ -444,5 +442,46 @@ func TestScoreCandidates_GenericTaskDoesNotDoubleCountQuality(t *testing.T) {
 	// With task_match folded into quality, the score is just the quality score.
 	if got := scores[0].Score; got < 0.799 || got > 0.801 {
 		t.Errorf("expected score 0.80 (quality only), got %.4f", got)
+	}
+}
+
+func TestCostScoreFor(t *testing.T) {
+	free := makeModel("free", 0, 0, 0.5, 0.5, 0.5, 128000)
+	cheap := makeModel("cheap", 0.15, 0.60, 0.5, 0.5, 0.5, 128000)
+	pricey := makeModel("pricey", 3.00, 15.00, 0.5, 0.5, 0.5, 128000)
+	premium := makeModel("premium", 15.00, 75.00, 0.5, 0.5, 0.5, 128000)
+	ratio := OutputRatioByTask(TaskCoding)
+
+	if got := costScoreFor(free, ratio, defaultCostReferencePrice); got != 1 {
+		t.Errorf("free model should score 1, got %.4f", got)
+	}
+	if got := costScoreFor(premium, ratio, defaultCostReferencePrice); got != 0 {
+		t.Errorf("model above the reference price should score 0, got %.4f", got)
+	}
+	c, p := costScoreFor(cheap, ratio, defaultCostReferencePrice), costScoreFor(pricey, ratio, defaultCostReferencePrice)
+	if !(c > p && c < 1 && p > 0) {
+		t.Errorf("expected 1 > cheap (%.4f) > pricey (%.4f) > 0", c, p)
+	}
+	if loose := costScoreFor(pricey, ratio, 200); loose <= p {
+		t.Errorf("a higher reference price should raise the score, got %.4f <= %.4f", loose, p)
+	}
+}
+
+func TestScoreCandidates_CostScoreIndependentOfOtherCandidates(t *testing.T) {
+	cheap := makeModel("cheap", 0.15, 0.60, 0.7, 0.7, 0.9, 128000)
+	premium := makeModel("premium", 15.00, 75.00, 0.95, 0.95, 0.6, 200000)
+	chars := RequestCharacteristics{Task: TaskCoding, ContextTokens: 500}
+	policy := balancedPolicy()
+
+	alone := ScoreCandidates([]*models.Model{cheap}, chars, policy)
+	withPremium := ScoreCandidates([]*models.Model{cheap, premium}, chars, policy)
+	var cheapWithPremium *ModelScore
+	for _, s := range withPremium {
+		if s.Model.Slug == "cheap" {
+			cheapWithPremium = s
+		}
+	}
+	if alone[0].CostScore != cheapWithPremium.CostScore {
+		t.Errorf("cost score changed when another candidate was added: %.4f vs %.4f", alone[0].CostScore, cheapWithPremium.CostScore)
 	}
 }
