@@ -236,18 +236,7 @@ func (e *Engine) resolveRoutes(c *gin.Context, req *ProxyRequest, gatewayKey *mo
 
 		// Fallback to built-in balanced policy if no policy configured in DB
 		if sPolicy == nil {
-			sPolicy = &RoutingPolicy{
-				Name: "balanced",
-				Weights: map[string]float64{
-					"task_match": 0.35,
-					"quality":    0.35,
-					"cost":       0.15,
-					"speed":      0.15,
-				},
-				Constraints: map[string]float64{
-					"max_cost_per_request": 0.05,
-				},
-			}
+			sPolicy = DefaultRoutingPolicy()
 		}
 
 		// Check budget status for auto-downgrade
@@ -604,8 +593,10 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		latency := int(time.Since(start).Milliseconds())
 
 		if e.telemetry != nil {
+			// Non-streaming responses have no first token; record TTFT as 0 so
+			// total latency does not count as TTFT in the p95 speed penalty.
 			go func(mSlug string, lat int) {
-				_ = e.telemetry.RecordModelLatency(context.Background(), mSlug, lat, lat, true)
+				_ = e.telemetry.RecordModelLatency(context.Background(), mSlug, 0, lat, true)
 			}(route.Model.Slug, latency)
 		}
 
@@ -973,13 +964,13 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				for _, ch := range chunk.Choices {
 					if ch.Delta != nil {
 						if content, ok := ch.Delta["content"].(string); ok && content != "" {
-							ttftMs = int(time.Since(start).Milliseconds())
+							ttftMs = int(time.Since(attemptStart).Milliseconds())
 							ttftCaptured = true
 							telemetry.RecordTTFT(c.Request.Context(), route.Model.Slug, route.Provider.Type, float64(ttftMs)/1000.0)
 							break
 						}
 						if _, ok := ch.Delta["reasoning_content"].(string); ok {
-							ttftMs = int(time.Since(start).Milliseconds())
+							ttftMs = int(time.Since(attemptStart).Milliseconds())
 							ttftCaptured = true
 							telemetry.RecordTTFT(c.Request.Context(), route.Model.Slug, route.Provider.Type, float64(ttftMs)/1000.0)
 							break
