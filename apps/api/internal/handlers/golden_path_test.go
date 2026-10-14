@@ -14,6 +14,7 @@ import (
 	"github.com/roozylabs/prism/internal/middleware"
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/proxy"
+	"github.com/roozylabs/prism/internal/repository"
 	"github.com/roozylabs/prism/internal/service"
 )
 
@@ -23,6 +24,17 @@ type mockKeyFinder struct {
 
 func (m *mockKeyFinder) FindByKeyHash(ctx context.Context, keyHash string) (*models.GatewayAPIKey, error) {
 	return m.key, nil
+}
+
+type mockRoleResolver struct {
+	roles map[string]string // orgID/userID -> role slug
+}
+
+func (m *mockRoleResolver) GetOrganizationMemberRole(ctx context.Context, orgID, userID string) (string, error) {
+	if role, ok := m.roles[orgID+"/"+userID]; ok {
+		return role, nil
+	}
+	return "", repository.ErrNotMember
 }
 
 type mockPolicyFinder struct {
@@ -51,6 +63,7 @@ func TestGoldenPathTenantSecurity_CrossOrgHeaderRejected(t *testing.T) {
 	admissionCtrl := proxy.NewAdmissionController(rbacEngine, nil, nil, nil)
 	orchestrator := service.NewExecutionOrchestrator(nil, admissionCtrl, nil, nil, nil, nil, nil)
 	gatewayHandler := handlers.NewGatewayHandler(nil, nil, nil, nil, nil, nil, nil, rbacEngine, nil, nil, nil, orchestrator)
+	gatewayHandler.SetMemberRoleResolver(&mockRoleResolver{roles: map[string]string{"org_alpha/user_1": "developer"}})
 
 	router := gin.New()
 	rg := router.Group("/v1")
@@ -115,6 +128,7 @@ func TestGoldenPathDeniedByRBAC_ZeroProviderCalls(t *testing.T) {
 	admissionCtrl := proxy.NewAdmissionController(rbacEngine, nil, nil, nil)
 	orchestrator := service.NewExecutionOrchestrator(nil, admissionCtrl, nil, nil, nil, nil, nil)
 	gatewayHandler := handlers.NewGatewayHandler(nil, nil, nil, nil, nil, nil, nil, rbacEngine, nil, nil, nil, orchestrator)
+	gatewayHandler.SetMemberRoleResolver(&mockRoleResolver{roles: map[string]string{"org_alpha/user_1": "developer"}})
 
 	router := gin.New()
 	rg := router.Group("/v1")
@@ -170,6 +184,7 @@ func TestSDKAndCLIGovernanceConsistency(t *testing.T) {
 	admissionCtrl := proxy.NewAdmissionController(rbacEngine, nil, nil, nil)
 	orchestrator := service.NewExecutionOrchestrator(nil, admissionCtrl, nil, nil, nil, nil, nil)
 	gatewayHandler := handlers.NewGatewayHandler(nil, nil, nil, nil, nil, nil, nil, rbacEngine, nil, nil, nil, orchestrator)
+	gatewayHandler.SetMemberRoleResolver(&mockRoleResolver{roles: map[string]string{"org_alpha/user_1": "developer"}})
 
 	router := gin.New()
 	rg := router.Group("/v1")

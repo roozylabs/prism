@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -221,4 +223,42 @@ func TestResolveMCPHeadersEncrypted(t *testing.T) {
 	headers := resolveMCPHeaders(srv, key)
 	assert.Equal(t, "Bearer secret", headers["Authorization"])
 	assert.Equal(t, "abc", headers["X-Api-Key"])
+}
+
+func localMCPServer(t *testing.T) (*models.MCPServer, string) {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "spawned")
+	return &models.MCPServer{
+		ID:      "srv_local",
+		Name:    "local",
+		Type:    "local",
+		Command: "sh",
+		Args:    []string{"-c", "touch " + marker},
+		Enabled: true,
+	}, marker
+}
+
+func TestMCPGateway_LocalServerNotSpawnedByDefault(t *testing.T) {
+	srv, marker := localMCPServer(t)
+	gw := NewMCPGateway(&mcpServerFinderMock{srv: srv}, &mcpToolBatchSaverMock{})
+	require.False(t, gw.LocalStdioEnabled())
+
+	_, err := gw.SyncServerTools(context.Background(), srv.ID, "user_1", "")
+	assert.ErrorIs(t, err, ErrLocalMCPDisabled)
+
+	_, err = gw.ExecuteTool(context.Background(), "user_1", srv.Name, "anything", nil, "")
+	assert.ErrorIs(t, err, ErrLocalMCPDisabled)
+
+	_, statErr := os.Stat(marker)
+	assert.True(t, os.IsNotExist(statErr), "local MCP command must not be executed when disabled")
+}
+
+func TestMCPGateway_LocalServerAllowedWhenEnabled(t *testing.T) {
+	srv := &models.MCPServer{ID: "srv_local", Name: "local", Type: "local", Command: "/nonexistent/prism-mcp-test-binary", Enabled: true}
+	gw := NewMCPGateway(&mcpServerFinderMock{srv: srv}, &mcpToolBatchSaverMock{})
+	gw.SetLocalStdioEnabled(true)
+
+	_, err := gw.SyncServerTools(context.Background(), srv.ID, "user_1", "")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrLocalMCPDisabled)
 }

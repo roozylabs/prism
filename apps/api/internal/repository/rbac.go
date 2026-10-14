@@ -76,6 +76,29 @@ func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string, 
 	return permissions, roleSlug, nil
 }
 
+// GetOrganizationMemberRole returns the role slug a user holds in an organization,
+// resolved through the authoritative role_id link. Returns ErrNotMember when absent.
+func (r *RBACRepository) GetOrganizationMemberRole(ctx context.Context, orgID, userID string) (string, error) {
+	if userID == "" || orgID == "" {
+		return "", ErrNotMember
+	}
+	var slug string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT r.slug
+		 FROM organization_members om
+		 JOIN roles r ON om.role_id = r.id
+		 WHERE om.org_id = $1 AND om.user_id = $2`,
+		orgID, userID,
+	).Scan(&slug)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotMember
+		}
+		return "", fmt.Errorf("query organization member role: %w", err)
+	}
+	return slug, nil
+}
+
 // CountOwners returns the number of active owners for an organization.
 func (r *RBACRepository) CountOwners(ctx context.Context, orgID string) (int, error) {
 	var count int

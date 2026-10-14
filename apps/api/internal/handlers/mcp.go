@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -146,6 +147,16 @@ func (h *MCPHandler) buildConfigHeaders(req CreateMCPServerRequest) (*string, er
 	return &enc, nil
 }
 
+// rejectLocalMCP responds 403 and returns true when a local (stdio) MCP server
+// is requested but the operator has not enabled local MCP execution.
+func (h *MCPHandler) rejectLocalMCP(c *gin.Context, serverType string) bool {
+	if !proxy.IsLocalMCPType(serverType) || h.gateway.LocalStdioEnabled() {
+		return false
+	}
+	httputil.RespondForbidden(c, "Local (stdio) MCP servers are disabled on this gateway. Use a remote MCP server instead.", proxy.ErrLocalMCPDisabled, "LOCAL_MCP_DISABLED")
+	return true
+}
+
 func (h *MCPHandler) List(c *gin.Context) {
 	userID := c.GetString("userId")
 	servers, err := h.servers.ListByUserID(c.Request.Context(), userID)
@@ -186,6 +197,9 @@ func (h *MCPHandler) Create(c *gin.Context) {
 	configType := strings.ToLower(strings.TrimSpace(req.Type))
 	if configType == "" {
 		configType = "remote"
+	}
+	if h.rejectLocalMCP(c, configType) {
+		return
 	}
 	if configType == "local" {
 		if strings.TrimSpace(req.Command) == "" {
@@ -290,6 +304,11 @@ func (h *MCPHandler) Update(c *gin.Context) {
 		existing.Enabled = *req.Enabled
 	}
 
+	touchesLocalConfig := req.Type != "" || req.Command != "" || req.Args != nil || req.Env != nil
+	if touchesLocalConfig && h.rejectLocalMCP(c, existing.Type) {
+		return
+	}
+
 	if req.AuthToken != "" || len(req.Headers) > 0 {
 		headersEnc, err := h.buildConfigHeaders(req)
 		if err != nil {
@@ -326,6 +345,10 @@ func (h *MCPHandler) Sync(c *gin.Context) {
 	defer cancel()
 
 	st, err := h.gateway.SyncServerTools(ctx, id, userID, h.encKey)
+	if errors.Is(err, proxy.ErrLocalMCPDisabled) {
+		httputil.RespondForbidden(c, "Local (stdio) MCP servers are disabled on this gateway", err, "LOCAL_MCP_DISABLED")
+		return
+	}
 	if err != nil {
 		httputil.RespondError(c, http.StatusBadGateway, "MCP Server sync failed: "+err.Error(), err, "MCP_SYNC_FAILED")
 		return
@@ -370,6 +393,10 @@ func (h *MCPHandler) TestTool(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	res, err := h.gateway.ExecuteTool(ctx, userID, srv.Name, targetTool, req.Args, h.encKey)
+	if errors.Is(err, proxy.ErrLocalMCPDisabled) {
+		httputil.RespondForbidden(c, "Local (stdio) MCP servers are disabled on this gateway", err, "LOCAL_MCP_DISABLED")
+		return
+	}
 	if err != nil {
 		httputil.RespondError(c, http.StatusBadGateway, "Tool execution failed: "+err.Error(), err, "MCP_TOOL_EXECUTION_FAILED")
 		return

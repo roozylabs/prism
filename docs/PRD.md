@@ -997,6 +997,8 @@ OPENCODE_MAX_CONCURRENCY=2
 MAX_RETRIES=2
 COOLDOWN_SECONDS=60
 RATE_LIMIT_PER_KEY=100
+# Local (stdio) MCP servers run a user-chosen command on the gateway host. Off by default.
+MCP_LOCAL_STDIO_ENABLED=false
 ```
 > *Catatan: Provider API credentials tidak disimpan di `.env` melainkan di database via dashboard secara terenkripsi.*
 
