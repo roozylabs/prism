@@ -452,6 +452,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		if err != nil {
 			release()
 			lastErr = fmt.Errorf("execute request: %w", err)
+			e.recordModelFailure(route.Model.Slug, attemptStart)
 			if isQuarantined, _ := e.cooldown.RecordServerError(ctx, route.Credential.ID, 504); isQuarantined {
 				if e.publisher != nil {
 					_ = e.publisher.Publish(ctx, "CREDENTIAL_QUARANTINED", map[string]interface{}{
@@ -537,6 +538,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			}
 			go e.syncCredentialHealth(context.Background(), route.Credential, true, false)
 			lastErr = fmt.Errorf("upstream returned %d", httpResp.StatusCode)
+			e.recordModelFailure(route.Model.Slug, attemptStart)
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
 			time.Sleep(calculateBackoff(i))
@@ -818,6 +820,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		if err != nil {
 			release()
 			lastErr = fmt.Errorf("execute request: %w", err)
+			e.recordModelFailure(route.Model.Slug, attemptStart)
 			if isQuarantined, _ := e.cooldown.RecordServerError(c.Request.Context(), route.Credential.ID, 504); isQuarantined {
 				if e.publisher != nil {
 					_ = e.publisher.Publish(c.Request.Context(), "CREDENTIAL_QUARANTINED", map[string]interface{}{
@@ -897,6 +900,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				}
 			}
 			lastErr = fmt.Errorf("upstream returned %d", httpResp.StatusCode)
+			e.recordModelFailure(route.Model.Slug, attemptStart)
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
 			time.Sleep(calculateBackoff(i))
@@ -1021,10 +1025,12 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			}
 		}
 
+		streamInterrupted := false
 		if err := scanner.Err(); err != nil {
 			if !forwardedAny {
 				log.Printf("stream pre-token error, retrying next route: %v", err)
 				lastErr = fmt.Errorf("stream interrupted before first token: %w", err)
+				e.recordModelFailure(route.Model.Slug, attemptStart)
 				if httpResp.StatusCode >= 429 {
 					_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, 0)
 				}
@@ -1032,6 +1038,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				continue
 			}
 			log.Printf("stream interrupted mid-response: %v", err)
+			streamInterrupted = true
 			_, _ = c.Writer.Write([]byte("data: {\"error\":{\"message\":\"stream interrupted upstream\",\"type\":\"stream_error\",\"partial\":true}}\n\n"))
 		}
 
@@ -1080,9 +1087,9 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		latency := int(time.Since(start).Milliseconds())
 
 		if e.telemetry != nil {
-			go func(mSlug string, ttft int, lat int) {
-				_ = e.telemetry.RecordModelLatency(context.Background(), mSlug, ttft, lat, true)
-			}(route.Model.Slug, ttftMs, latency)
+			go func(mSlug string, ttft int, lat int, ok bool) {
+				_ = e.telemetry.RecordModelLatency(context.Background(), mSlug, ttft, lat, ok)
+			}(route.Model.Slug, ttftMs, latency, !streamInterrupted)
 		}
 
 		modelName := req.Model
@@ -1137,6 +1144,19 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 	}
 
 	return nil, fmt.Errorf("all credentials exhausted after %d retries: %w", retryCount, lastErr)
+}
+
+// recordModelFailure feeds a failed upstream attempt (network error, 5xx or
+// broken stream) into the model telemetry, so the scorer's success-rate
+// penalty sees it. TTFT is recorded as 0 to keep it out of the p95 TTFT.
+func (e *Engine) recordModelFailure(modelSlug string, attemptStart time.Time) {
+	if e.telemetry == nil {
+		return
+	}
+	lat := int(time.Since(attemptStart).Milliseconds())
+	go func() {
+		_ = e.telemetry.RecordModelLatency(context.Background(), modelSlug, 0, lat, false)
+	}()
 }
 
 func (e *Engine) backfillActualCost(requestID string, cost float64) {

@@ -185,3 +185,59 @@ func TestHasGitDiff(t *testing.T) {
 		t.Error("expected git diff detection")
 	}
 }
+
+func TestClassifyRequest_IgnoresSystemPrompt(t *testing.T) {
+	req := []map[string]interface{}{
+		{"role": "system", "content": "You are a coding agent. Use tools to edit files like src/main.go and run `go test`.\n```go\nfunc main() {}\n```"},
+		msg("Translate this paragraph into Indonesian: good morning everyone."),
+	}
+	chars := ClassifyRequest(req)
+	if chars.Task != TaskTranslation {
+		t.Errorf("expected translation from the user message, got %s", chars.Task)
+	}
+}
+
+func TestClassifyRequest_UsesLatestUserMessage(t *testing.T) {
+	req := []map[string]interface{}{
+		msg("Write a blog post about testing."),
+		{"role": "assistant", "content": "Here is a draft..."},
+		msg("Now fix this bug in src/app.ts"),
+	}
+	chars := ClassifyRequest(req)
+	if chars.Task != TaskCoding {
+		t.Errorf("expected coding from the latest user message, got %s", chars.Task)
+	}
+}
+
+func TestClassifyRequest_ArrayContent(t *testing.T) {
+	req := []map[string]interface{}{
+		{"role": "user", "content": []interface{}{
+			map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": "https://example.com/a.png"}},
+			map[string]interface{}{"type": "text", "text": "Summarize the key points of this chart."},
+		}},
+	}
+	chars := ClassifyRequest(req)
+	if chars.Task != TaskSummarize {
+		t.Errorf("expected summarization from text parts, got %s", chars.Task)
+	}
+}
+
+func TestClassifyRequest_TieBreakIsDeterministic(t *testing.T) {
+	// translation and summarization both score 3; translation has priority.
+	req := []map[string]interface{}{msg("translate this summary to English")}
+	for i := 0; i < 200; i++ {
+		if got := ClassifyRequest(req).Task; got != TaskTranslation {
+			t.Fatalf("run %d: expected translation, got %s", i, got)
+		}
+	}
+}
+
+func TestClassifyRequest_NoUserMessageFallsBackToAllText(t *testing.T) {
+	req := []map[string]interface{}{
+		{"role": "system", "content": "Summarize the conversation so far."},
+	}
+	chars := ClassifyRequest(req)
+	if chars.Task != TaskSummarize {
+		t.Errorf("expected summarization fallback, got %s", chars.Task)
+	}
+}
