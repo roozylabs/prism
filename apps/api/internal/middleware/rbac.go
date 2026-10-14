@@ -9,10 +9,11 @@ import (
 
 // RequirePermission creates a Gin middleware ensuring the authenticated caller has the required permission.
 // Also validates scope boundaries for Gateway API Keys.
+// Fails closed: a missing authorization engine denies every request.
 func RequirePermission(authzEngine *authz.AuthorizationEngine, action string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if authzEngine == nil {
-			c.Next()
+			httputil.RespondForbidden(c, "Forbidden: authorization is unavailable", nil, "AUTHZ_UNAVAILABLE")
 			return
 		}
 

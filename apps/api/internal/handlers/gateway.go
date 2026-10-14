@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,46 @@ type GatewayHandler struct {
 	jobQueue        *queue.JobQueue
 	mcpServerRepo   *repository.MCPServerRepository
 	mcpToolRepo     *repository.MCPToolRepository
+	roleResolver    MemberRoleResolver
+}
+
+// MemberRoleResolver resolves the role a user holds in an organization from
+// their membership record.
+type MemberRoleResolver interface {
+	GetOrganizationMemberRole(ctx context.Context, orgID, userID string) (string, error)
+}
+
+// ErrMemberRoleUnresolved is returned when the gateway key owner's role in the
+// request's organization cannot be derived from membership.
+var ErrMemberRoleUnresolved = errors.New("gateway key owner has no role in the requested organization")
+
+// SetMemberRoleResolver wires the membership lookup used to derive the
+// governance role for gateway requests.
+func (h *GatewayHandler) SetMemberRoleResolver(r MemberRoleResolver) {
+	h.roleResolver = r
+}
+
+// resolveMemberRole derives the governance role from the key owner's
+// organization membership. Client-supplied role headers are never trusted.
+// Fails closed when the role cannot be resolved.
+func (h *GatewayHandler) resolveMemberRole(ctx context.Context, key *models.GatewayAPIKey, tenantCtx models.TenantContext) (string, error) {
+	if h.roleResolver == nil || key == nil || key.UserID == "" || tenantCtx.OrgID == "" {
+		return "", ErrMemberRoleUnresolved
+	}
+	role, err := h.roleResolver.GetOrganizationMemberRole(ctx, tenantCtx.OrgID, key.UserID)
+	if err != nil || role == "" {
+		return "", ErrMemberRoleUnresolved
+	}
+	return role, nil
+}
+
+func respondRoleUnresolved(c *gin.Context, err error) {
+	c.JSON(http.StatusForbidden, gin.H{
+		"error": gin.H{
+			"message": err.Error(),
+			"type":    "tenant_security_error",
+		},
+	})
 }
 
 func (h *GatewayHandler) SetMCPRepositories(servers *repository.MCPServerRepository, tools *repository.MCPToolRepository) {
@@ -144,7 +185,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if agentName == "" {
 		agentName = c.GetHeader("X-Agent-Name")
 	}
-	userRole := c.GetHeader("X-Prism-Role")
+	userRole, err := h.resolveMemberRole(c.Request.Context(), gatewayKey, tenantCtx)
+	if err != nil {
+		respondRoleUnresolved(c, err)
+		return
+	}
 
 	// Behind-the-scenes Agent System Persona & Tool/Resource/MCP Rules Injection
 	h.applyAgentBoundary(c.Request.Context(), &req, agentID, gatewayKey, c)
@@ -393,7 +438,11 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 	if agentName == "" {
 		agentName = c.GetHeader("X-Agent-Name")
 	}
-	userRole := c.GetHeader("X-Prism-Role")
+	userRole, err := h.resolveMemberRole(c.Request.Context(), keyObj, tenantCtx)
+	if err != nil {
+		respondRoleUnresolved(c, err)
+		return
+	}
 	clientIP := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
 	clientApp := parseClientApp(userAgent)

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -17,6 +18,15 @@ import (
 )
 
 const mcpClientName = "prism-mcp"
+
+// ErrLocalMCPDisabled is returned when a local (stdio) MCP server is used while
+// the operator has not enabled local MCP execution.
+var ErrLocalMCPDisabled = errors.New("local (stdio) MCP servers are disabled on this gateway")
+
+// IsLocalMCPType reports whether an MCP server type spawns a local process.
+func IsLocalMCPType(serverType string) bool {
+	return strings.EqualFold(strings.TrimSpace(serverType), "local")
+}
 
 type MCPServerFinder interface {
 	FindByUserAndName(ctx context.Context, userID, name string) (*models.MCPServer, error)
@@ -35,9 +45,10 @@ type MCPInvocationSaver interface {
 }
 
 type MCPGateway struct {
-	servers     MCPServerFinder
-	tools       MCPToolBatchSaver
-	invocations MCPInvocationSaver
+	servers           MCPServerFinder
+	tools             MCPToolBatchSaver
+	invocations       MCPInvocationSaver
+	localStdioEnabled bool
 }
 
 // NewMCPGateway constructs the gateway. The invocation saver is optional; when
@@ -50,10 +61,24 @@ func NewMCPGateway(servers MCPServerFinder, tools MCPToolBatchSaver, saver ...MC
 	return &MCPGateway{servers: servers, tools: tools, invocations: invs}
 }
 
+// SetLocalStdioEnabled allows or forbids spawning local (stdio) MCP servers.
+// It is off by default.
+func (g *MCPGateway) SetLocalStdioEnabled(enabled bool) {
+	g.localStdioEnabled = enabled
+}
+
+// LocalStdioEnabled reports whether local (stdio) MCP servers may be spawned.
+func (g *MCPGateway) LocalStdioEnabled() bool {
+	return g != nil && g.localStdioEnabled
+}
+
 // newMCPClient builds a transport-aware MCP client, performs the initialize
 // handshake, and returns a ready-to-use client. The caller must Close() it.
-func newMCPClient(ctx context.Context, srv *models.MCPServer, encKey string) (*client.Client, error) {
-	if strings.EqualFold(strings.TrimSpace(srv.Type), "local") {
+func (g *MCPGateway) newMCPClient(ctx context.Context, srv *models.MCPServer, encKey string) (*client.Client, error) {
+	if IsLocalMCPType(srv.Type) {
+		if !g.LocalStdioEnabled() {
+			return nil, fmt.Errorf("mcp server %q: %w", srv.Name, ErrLocalMCPDisabled)
+		}
 		return newLocalMCPClient(ctx, srv, encKey)
 	}
 	return newRemoteMCPClient(ctx, srv, encKey)
@@ -149,7 +174,7 @@ func (g *MCPGateway) SyncServerTools(ctx context.Context, serverID, userID, encK
 		return nil, fmt.Errorf("resolve mcp server: %w", err)
 	}
 
-	c, err := newMCPClient(ctx, srv, encKey)
+	c, err := g.newMCPClient(ctx, srv, encKey)
 	if err != nil {
 		_ = g.servers.UpdateStatus(ctx, srv.ID, "offline")
 		return nil, err
@@ -195,7 +220,7 @@ func (g *MCPGateway) ExecuteTool(ctx context.Context, userID, serverName, toolNa
 		return nil, fmt.Errorf("mcp server %q is disabled or not found", serverName)
 	}
 
-	c, err := newMCPClient(ctx, srv, encKey)
+	c, err := g.newMCPClient(ctx, srv, encKey)
 	if err != nil {
 		_ = g.servers.UpdateStatus(ctx, srv.ID, "offline")
 		return nil, err

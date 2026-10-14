@@ -19,6 +19,11 @@ type Config struct {
 	CooldownSeconds int
 	RateLimitPerKey int
 	RunMigrations   bool
+	// MCPLocalStdioEnabled allows MCP servers of type "local", which spawn an
+	// operator-host process over stdio. Any user who can create MCP servers can
+	// choose the command, so this must stay off unless every such user is trusted
+	// to run code on the gateway host.
+	MCPLocalStdioEnabled bool
 }
 
 func Load() (*Config, error) {
@@ -36,6 +41,8 @@ func Load() (*Config, error) {
 		CooldownSeconds: getEnvInt("COOLDOWN_SECONDS", 60),
 		RateLimitPerKey: getEnvInt("RATE_LIMIT_PER_KEY", 100),
 		RunMigrations:   getEnvBool("RUN_MIGRATIONS", true),
+
+		MCPLocalStdioEnabled: getEnvBool("MCP_LOCAL_STDIO_ENABLED", false),
 	}, nil
 }
 
