@@ -470,8 +470,8 @@ func main() {
 			protected.POST("/audit-trail/:id/verify", requirePermission("audit:verify"), auditTrailHandler.Verify)
 
 			// Sandbox
-			protected.POST("/sandbox/chat/completions", gatewayHandler.SandboxChatCompletions)
-			protected.POST("/sandbox/chat/completions/async", gatewayHandler.AsyncSandboxChatCompletions)
+			protected.POST("/sandbox/chat/completions", requirePermission("playground:execute"), gatewayHandler.SandboxChatCompletions)
+			protected.POST("/sandbox/chat/completions/async", requirePermission("playground:execute"), gatewayHandler.AsyncSandboxChatCompletions)
 			protected.GET("/jobs/:jobId", gatewayHandler.GetJobStatus)
 		}
 	}

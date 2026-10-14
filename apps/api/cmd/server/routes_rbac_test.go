@@ -104,6 +104,8 @@ func TestProtectedRoutes_SensitiveRoutesRequirePermission(t *testing.T) {
 		"POST /audit-trail/:id/verify":                           "audit:verify",
 		"POST /tools/:id/test":                                   "tool:execute",
 		"POST /resources/:id/test":                               "resource:query",
+		"POST /sandbox/chat/completions":                         "playground:execute",
+		"POST /sandbox/chat/completions/async":                   "playground:execute",
 		"POST /agents":                                           "agent:create",
 		"POST /budgets":                                          "budget:create",
 		"PATCH /providers/:id/models/:modelId/capabilities":      "model:update",
@@ -165,8 +167,6 @@ func TestProtectedRoutes_UnguardedRoutesAreExplicit(t *testing.T) {
 		"GET /routing-decisions":                               true,
 		"POST /routing/simulate":                               true,
 		"POST /routing-simulate":                               true,
-		"POST /sandbox/chat/completions":                       true,
-		"POST /sandbox/chat/completions/async":                 true,
 		"GET /jobs/:jobId":                                     true,
 	}
 

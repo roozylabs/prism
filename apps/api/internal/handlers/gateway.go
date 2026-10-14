@@ -40,6 +40,7 @@ type GatewayHandler struct {
 	mcpServerRepo   *repository.MCPServerRepository
 	mcpToolRepo     *repository.MCPToolRepository
 	roleResolver    MemberRoleResolver
+	sandboxKeys     sandboxKeyFinder
 }
 
 // MemberRoleResolver resolves the role a user holds in an organization from
@@ -100,7 +101,7 @@ func NewGatewayHandler(
 	agentRepo *repository.AgentRepository,
 	orchestrator *service.ExecutionOrchestrator,
 ) *GatewayHandler {
-	return &GatewayHandler{
+	h := &GatewayHandler{
 		engine:          engine,
 		gatewayKeys:     gatewayKeys,
 		requestLogs:     requestLogs,
@@ -114,6 +115,11 @@ func NewGatewayHandler(
 		agentRepo:       agentRepo,
 		orchestrator:    orchestrator,
 	}
+	// Avoid wrapping a nil repository in a non-nil interface.
+	if gatewayKeys != nil {
+		h.sandboxKeys = gatewayKeys
+	}
+	return h
 }
 
 func (h *GatewayHandler) SetJobQueue(q *queue.JobQueue) {
@@ -336,31 +342,43 @@ func (h *GatewayHandler) handleProxyError(c *gin.Context, err error, key *models
 	}
 }
 
-func (h *GatewayHandler) SandboxChatCompletions(c *gin.Context) {
-	keyPrefix := c.GetHeader("X-Sandbox-Key-Prefix")
-	var gatewayKey *models.GatewayAPIKey
-	var err error
+// sandboxKeyFinder looks up the gateway keys a sandbox request may run under.
+type sandboxKeyFinder interface {
+	FindByKeyPrefix(ctx context.Context, keyPrefix string) (*models.GatewayAPIKey, error)
+	ListByUserID(ctx context.Context, userID string) ([]models.GatewayAPIKey, error)
+}
 
-	if keyPrefix != "" {
-		gatewayKey, err = h.gatewayKeys.FindByKeyPrefix(c.Request.Context(), keyPrefix)
-		if err != nil {
+// resolveSandboxKey picks the gateway key a session-authenticated sandbox
+// request runs under: the key named by X-Sandbox-Key-Prefix, or the caller's
+// first enabled key. A prefix only resolves to a key the caller owns; another
+// user's key gets the same response as an unknown prefix so its existence is
+// not revealed. Writes the error response and returns false on failure.
+func (h *GatewayHandler) resolveSandboxKey(c *gin.Context) (*models.GatewayAPIKey, bool) {
+	userID := c.GetString("userId")
+	if userID == "" {
+		userID = c.GetString("user_id")
+	}
+	if userID == "" || h.sandboxKeys == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "Authentication required", "type": "auth_required"}})
+		return nil, false
+	}
+
+	var gatewayKey *models.GatewayAPIKey
+	if keyPrefix := c.GetHeader("X-Sandbox-Key-Prefix"); keyPrefix != "" {
+		key, err := h.sandboxKeys.FindByKeyPrefix(c.Request.Context(), keyPrefix)
+		if err != nil || key == nil || key.UserID != userID {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "Invalid API key prefix", "type": "invalid_request_error"}})
-			return
+			return nil, false
 		}
+		gatewayKey = key
 	} else {
-		userID := c.GetString("userID")
-		if userID == "" {
-			userID = c.GetString("user_id")
-		}
-		if userID != "" {
-			keys, lErr := h.gatewayKeys.ListByUserID(c.Request.Context(), userID)
-			if lErr == nil {
-				for _, k := range keys {
-					if k.Enabled {
-						keyObj := k
-						gatewayKey = &keyObj
-						break
-					}
+		keys, err := h.sandboxKeys.ListByUserID(c.Request.Context(), userID)
+		if err == nil {
+			for _, k := range keys {
+				if k.Enabled {
+					keyObj := k
+					gatewayKey = &keyObj
+					break
 				}
 			}
 		}
@@ -373,9 +391,16 @@ func (h *GatewayHandler) SandboxChatCompletions(c *gin.Context) {
 				"type":    "invalid_request_error",
 			},
 		})
+		return nil, false
+	}
+	return gatewayKey, true
+}
+
+func (h *GatewayHandler) SandboxChatCompletions(c *gin.Context) {
+	gatewayKey, ok := h.resolveSandboxKey(c)
+	if !ok {
 		return
 	}
-
 	c.Set("gatewayKey", gatewayKey)
 	h.ChatCompletions(c)
 }
@@ -494,45 +519,10 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 }
 
 func (h *GatewayHandler) AsyncSandboxChatCompletions(c *gin.Context) {
-	keyPrefix := c.GetHeader("X-Sandbox-Key-Prefix")
-	var gatewayKey *models.GatewayAPIKey
-	var err error
-
-	if keyPrefix != "" {
-		gatewayKey, err = h.gatewayKeys.FindByKeyPrefix(c.Request.Context(), keyPrefix)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "Invalid API key prefix", "type": "invalid_request_error"}})
-			return
-		}
-	} else {
-		userID := c.GetString("userID")
-		if userID == "" {
-			userID = c.GetString("user_id")
-		}
-		if userID != "" {
-			keys, lErr := h.gatewayKeys.ListByUserID(c.Request.Context(), userID)
-			if lErr == nil {
-				for _, k := range keys {
-					if k.Enabled {
-						keyObj := k
-						gatewayKey = &keyObj
-						break
-					}
-				}
-			}
-		}
-	}
-
-	if gatewayKey == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"message": "No active Gateway API key found. Please create or select a Gateway Key in Gateway Keys page.",
-				"type":    "invalid_request_error",
-			},
-		})
+	gatewayKey, ok := h.resolveSandboxKey(c)
+	if !ok {
 		return
 	}
-
 	c.Set("gatewayKey", gatewayKey)
 	h.AsyncChatCompletions(c)
 }
