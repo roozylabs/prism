@@ -5,11 +5,28 @@ on:
     branches: [ main ]
     paths:
       - 'apps/app/**'
+      - 'pnpm-lock.yaml'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - '.env.example'
+      - '.github/workflows/app-ci-cd.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'apps/app/**'
+      - 'pnpm-lock.yaml'
       - 'docker-compose*.yml'
       - '.dockerignore'
       - '.env.example'
       - '.github/workflows/app-ci-cd.yml'
   workflow_dispatch:
+
+# Pull requests run lint, tests and builds only; image push and deploy are
+# limited to pushes to main by the jobs' `if` conditions. A newer commit on the
+# same PR cancels the older run; runs on main never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -33,11 +50,11 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-          cache-dependency-path: 'apps/app/package.json'
+          cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: Install dependencies
         working-directory: apps/app
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build Next.js
         working-directory: apps/app
