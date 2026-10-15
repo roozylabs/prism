@@ -574,25 +574,12 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		}
 
 		if resp.Usage.TotalTokens == 0 {
-			inputChars := 0
-			for _, m := range req.Messages {
-				if content, ok := m["content"].(string); ok {
-					inputChars += len(content)
-				}
-			}
-			outputChars := 0
+			estInput := estimatePromptTokens(req)
+			estOutput := 0
 			for _, choice := range resp.Choices {
 				if content, ok := choice.Message["content"].(string); ok {
-					outputChars += len(content)
+					estOutput += estimateTextTokens(content)
 				}
-			}
-			estInput := (inputChars + 3) / 4
-			estOutput := (outputChars + 3) / 4
-			if estInput < 1 {
-				estInput = 1
-			}
-			if estOutput < 1 && outputChars > 0 {
-				estOutput = 1
 			}
 			resp.Usage = Usage{
 				PromptTokens:     estInput,
@@ -1063,17 +1050,8 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		respBytes := outputCharCount
 
 		if totalTokens.TotalTokens == 0 {
-			inputChars := 0
-			for _, m := range req.Messages {
-				if content, ok := m["content"].(string); ok {
-					inputChars += len(content)
-				}
-			}
-			estInput := (inputChars + 3) / 4
+			estInput := estimatePromptTokens(req)
 			estOutput := (outputCharCount + 3) / 4
-			if estInput < 1 {
-				estInput = 1
-			}
 			if estOutput < 1 && outputCharCount > 0 {
 				estOutput = 1
 			}
