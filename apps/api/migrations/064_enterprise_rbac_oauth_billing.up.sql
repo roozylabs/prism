@@ -1,8 +1,8 @@
--- 1. Adjust existing users table
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_onboarded BOOLEAN DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS primary_role TEXT DEFAULT 'developer';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT DEFAULT 'local';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+-- 1. Adjust existing "user" table
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_onboarded BOOLEAN DEFAULT false;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS primary_role TEXT DEFAULT 'developer';
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS auth_provider TEXT DEFAULT 'local';
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 
 -- 2. Create permissions catalog table
 CREATE TABLE IF NOT EXISTS permissions (
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS permissions (
 -- 3. Create roles table (system roles & org-custom roles)
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
@@ -40,7 +40,7 @@ ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS role_id UUID REFERENCE
 -- 6. Create member_invites table
 CREATE TABLE IF NOT EXISTS member_invites (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     token TEXT UNIQUE NOT NULL,
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS plan_features (
 -- 9. Organization Subscriptions Table (Prepared for Future Billing Feature)
 CREATE TABLE IF NOT EXISTS organization_subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     plan_id UUID REFERENCES subscription_plans(id),
     status TEXT DEFAULT 'active',
     current_period_start TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

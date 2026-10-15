@@ -11,7 +11,7 @@ VALUES ('proj_default', 'ws_default', 'Default Project', 'default-proj')
 ON CONFLICT (id) DO NOTHING;
 
 -- Attach existing single-tenant entities to default tenant boundaries
-UPDATE users SET org_id = 'org_default' WHERE org_id IS NULL;
+UPDATE "user" SET org_id = 'org_default' WHERE org_id IS NULL;
 UPDATE providers SET org_id = 'org_default', workspace_id = 'ws_default' WHERE org_id IS NULL;
 UPDATE gateway_api_keys SET org_id = 'org_default', workspace_id = 'ws_default', project_id = 'proj_default' WHERE org_id IS NULL;
 UPDATE agents SET org_id = 'org_default', workspace_id = 'ws_default', project_id = 'proj_default' WHERE org_id IS NULL;
