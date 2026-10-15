@@ -19,6 +19,8 @@ export interface ApiSetting {
   key: string;
   value: string;
   category?: string;
+  // "organization" when the organization set it, "platform" for a default.
+  scope?: 'organization' | 'platform';
 }
 
 export interface ApiOrganization {

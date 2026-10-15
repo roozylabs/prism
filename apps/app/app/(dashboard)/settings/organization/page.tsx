@@ -14,16 +14,7 @@ import { SettingFormSheet } from './_components/SettingFormSheet';
 
 export default function SettingsOrganizationPage() {
   const { data, isLoading, isError, refetch } = useOrganizationQuery();
-  const settings: ApiSetting[] = data
-    ? Array.isArray(data)
-      ? data
-      : typeof data === 'object'
-        ? Object.entries(data as Record<string, string>).map(([key, value]) => ({
-            key,
-            value: String(value),
-          }))
-        : []
-    : [];
+  const settings: ApiSetting[] = data ?? [];
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingSetting, setEditingSetting] = useState<ApiSetting | null>(null);
@@ -67,6 +58,7 @@ export default function SettingsOrganizationPage() {
                       <span className="text-xs text-muted-foreground font-mono truncate">{s.value}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {s.scope === 'platform' && <Badge variant="outline">Platform default</Badge>}
                       {s.category && <Badge variant="violet">{s.category}</Badge>}
                       <Button
                         variant="ghost"

@@ -1,14 +1,16 @@
 import { api } from './client';
-import { ApiHealthResponse } from './types/common';
+import { ApiHealthResponse, ApiSetting } from './types/common';
 
-export async function apiGetSettings(): Promise<Record<string, string>> {
-  const response = await api.get<Record<string, string>>('/settings');
-  return response.data;
+// The current organization's settings: its own values plus the platform
+// defaults it has not overridden.
+export async function apiGetSettings(): Promise<ApiSetting[]> {
+  const response = await api.get<{ value: ApiSetting[] }>('/settings');
+  return response.data.value ?? [];
 }
 
-export async function apiUpdateSettings(data: Record<string, string>): Promise<Record<string, string>> {
-  const response = await api.put<Record<string, string>>('/settings', data);
-  return response.data;
+// Saves values for the current organization only.
+export async function apiUpdateSettings(data: Record<string, string>): Promise<void> {
+  await api.put('/settings', { settings: data });
 }
 
 export async function apiGetHealth(): Promise<ApiHealthResponse> {
