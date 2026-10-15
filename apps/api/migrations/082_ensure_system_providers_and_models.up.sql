@@ -8,7 +8,7 @@ VALUES
     ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Anthropic', 'anthropic', 'https://api.anthropic.com', 'anthropic', true, 'round_robin', NOW(), NOW()),
     ('d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Google Gemini', 'google', 'https://generativelanguage.googleapis.com', 'google', true, 'round_robin', NOW(), NOW()),
     ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'OpenCode Zen', 'opencode-zen', 'https://opencode.ai/zen', 'opencode', true, 'round_robin', NOW(), NOW()),
-    ('f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Groq Fast Inference', 'groq', 'https://api.groq.com/openai/v1', 'groq', true, 'round_robin', NOW(), NOW()),
+    ('a2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Groq Fast Inference', 'groq', 'https://api.groq.com/openai/v1', 'groq', true, 'round_robin', NOW(), NOW()),
     ('a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'DeepSeek AI', 'deepseek', 'https://api.deepseek.com', 'deepseek', true, 'round_robin', NOW(), NOW())
 ON CONFLICT (slug) DO UPDATE SET
     enabled = true,
@@ -26,7 +26,7 @@ VALUES
     ('d0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'gemini-1.5-pro', 'gemini-1.5-pro', 'Gemini 1.5 Pro', true, true, true, NOW(), NOW()),
     ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'deepseek-v4-pro', 'deepseek-v4-pro', 'DeepSeek V4 Pro', true, true, false, NOW(), NOW()),
     ('e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'kimi-k3', 'kimi-k3', 'Kimi K3', true, true, false, NOW(), NOW()),
-    ('f0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'llama-3.3-70b-versatile', 'llama-3.3-70b-versatile', 'Llama 3.3 70B (Groq)', true, true, false, NOW(), NOW()),
+    ('a2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'llama-3.3-70b-versatile', 'llama-3.3-70b-versatile', 'Llama 3.3 70B (Groq)', true, true, false, NOW(), NOW()),
     ('a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'deepseek-chat', 'deepseek-chat', 'DeepSeek V3 (Chat)', true, true, false, NOW(), NOW()),
     ('a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'deepseek-reasoner', 'deepseek-reasoner', 'DeepSeek R1 (Reasoner)', true, true, false, NOW(), NOW())
 ON CONFLICT (provider_id, slug) DO UPDATE SET

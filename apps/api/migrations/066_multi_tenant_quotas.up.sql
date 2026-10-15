@@ -1,7 +1,7 @@
 -- Create Multi-Tenant Quota & Limit Enforcement table
 CREATE TABLE IF NOT EXISTS tenant_quotas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     target_type VARCHAR(32) NOT NULL, -- 'organization' | 'workspace' | 'agent' | 'user'
     target_id VARCHAR(255) NOT NULL,
     monthly_spend_limit_usd NUMERIC(12, 4) DEFAULT 500.00,

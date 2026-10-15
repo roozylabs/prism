@@ -1,7 +1,7 @@
 -- Create Multi-Tier Billing Invoices Table
 CREATE TABLE IF NOT EXISTS billing_invoices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     invoice_number VARCHAR(64) UNIQUE NOT NULL,
     amount_due_usd NUMERIC(12, 4) NOT NULL DEFAULT 0.00,
     amount_paid_usd NUMERIC(12, 4) NOT NULL DEFAULT 0.00,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS billing_invoices (
 -- Create Daily Usage Aggregates Table for Fast Financial Reporting
 CREATE TABLE IF NOT EXISTS daily_usage_aggregates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     usage_date DATE NOT NULL,
     provider_slug VARCHAR(64) NOT NULL,
     model_slug VARCHAR(128) NOT NULL,

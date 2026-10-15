@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS mcp_registry (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL,
-    organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     description TEXT,
