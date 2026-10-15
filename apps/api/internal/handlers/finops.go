@@ -91,7 +91,7 @@ func (h *FinOpsHandler) GetSummary(c *gin.Context) {
 
 	var forecast *SpendForecast
 	if h.forecastRepo != nil {
-		if series, err := h.forecastRepo.GetDailySpendSeries(c.Request.Context(), 28); err == nil && len(series) > 0 {
+		if series, err := h.forecastRepo.GetDailySpendSeries(c.Request.Context(), userID, 28); err == nil && len(series) > 0 {
 			f := ComputeForecast(series)
 			forecast = &f
 		}

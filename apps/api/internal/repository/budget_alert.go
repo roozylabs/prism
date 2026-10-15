@@ -75,7 +75,16 @@ func (r *BudgetAlertRepository) ListUnacknowledged(ctx context.Context, limit in
 	return alerts, rows.Err()
 }
 
-func (r *BudgetAlertRepository) Acknowledge(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE budget_alerts SET acknowledged_at = NOW() WHERE id = $1`, id)
-	return err
+// Acknowledge marks an alert on one of userID's budgets as seen, and reports
+// whether there was such an alert.
+func (r *BudgetAlertRepository) Acknowledge(ctx context.Context, id, userID string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE budget_alerts ba SET acknowledged_at = NOW()
+		 FROM budgets b
+		 WHERE ba.id::text = $1 AND ba.budget_id = b.id AND b.user_id = $2`, id, userID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
