@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -164,6 +165,21 @@ func (r *ProxyRequest) UnmarshalJSON(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// ErrClientCanceled is returned when the caller went away (disconnected or
+// canceled) before a response was produced. It is not an upstream failure, so
+// no credential, model or provider is penalized for it.
+var ErrClientCanceled = errors.New("client canceled the request")
+
+// sleepCtx waits for d, returning early if ctx is done.
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
 }
 
 func safeContext(c *gin.Context) context.Context {
@@ -366,6 +382,9 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 	var lastAttemptStatus int
 
 	for i, route := range routes {
+		if ctx.Err() != nil {
+			return nil, nil, ErrClientCanceled
+		}
 		if i > 0 {
 			retryCount++
 			_ = e.cooldown.TrackActiveStream(ctx, reqID, req.Model, gwKeyID, getCredentialDisplayName(route.Credential))
@@ -428,6 +447,8 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			lastErr = fmt.Errorf("build request: %w", err)
 			continue
 		}
+		// Cancel the upstream call when the client goes away.
+		httpReq = httpReq.WithContext(ctx)
 
 		_ = e.throttler.Wait(ctx, route.Provider.Type)
 		release, err := e.concurrency.Acquire(ctx, route.Provider.Type)
@@ -440,6 +461,9 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		httpResp, err := e.client.Do(httpReq)
 		if err != nil {
 			release()
+			if ctx.Err() != nil {
+				return nil, nil, ErrClientCanceled
+			}
 			lastErr = fmt.Errorf("execute request: %w", err)
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			if isQuarantined, _ := e.cooldown.RecordServerError(ctx, route.Credential.ID, 504); isQuarantined {
@@ -459,6 +483,9 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		_ = httpResp.Body.Close()
 		release()
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ErrClientCanceled
+			}
 			lastErr = fmt.Errorf("read response: %w", err)
 			continue
 		}
@@ -484,7 +511,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			lastErr = fmt.Errorf("upstream rate limit (429) on credential %s (retry after %ds): %s", route.Credential.ID, retryAfter, strings.TrimSpace(bodyStr))
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
-			time.Sleep(calculateBackoff(i))
+			sleepCtx(ctx, calculateBackoff(i))
 			continue
 		}
 
@@ -530,7 +557,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
-			time.Sleep(calculateBackoff(i))
+			sleepCtx(ctx, calculateBackoff(i))
 			continue
 		}
 
@@ -544,7 +571,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 
 			// If running smart routing (prism-auto/roozy-auto/auto) and more candidate routes exist, failover to next candidate!
 			if (req.Model == "prism-auto" || req.Model == "roozy-auto" || req.Model == "auto") && i < len(routes)-1 {
-				time.Sleep(calculateBackoff(i))
+				sleepCtx(ctx, calculateBackoff(i))
 				continue
 			}
 			return nil, nil, lastErr
@@ -723,6 +750,9 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 	var lastAttemptStatus int
 
 	for i, route := range routes {
+		if ctx.Err() != nil {
+			return nil, ErrClientCanceled
+		}
 		if i > 0 {
 			retryCount++
 			_ = e.cooldown.TrackActiveStream(c.Request.Context(), reqID, req.Model, gwKeyID, getCredentialDisplayName(route.Credential))
@@ -785,6 +815,8 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			lastErr = fmt.Errorf("build request: %w", err)
 			continue
 		}
+		// Cancel the upstream call when the client goes away.
+		httpReq = httpReq.WithContext(ctx)
 
 		_ = e.throttler.Wait(c.Request.Context(), route.Provider.Type)
 		release, err := e.concurrency.Acquire(c.Request.Context(), route.Provider.Type)
@@ -797,6 +829,9 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		httpResp, err := e.client.Do(httpReq)
 		if err != nil {
 			release()
+			if ctx.Err() != nil {
+				return nil, ErrClientCanceled
+			}
 			lastErr = fmt.Errorf("execute request: %w", err)
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			if isQuarantined, _ := e.cooldown.RecordServerError(c.Request.Context(), route.Credential.ID, 504); isQuarantined {
@@ -833,7 +868,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			lastErr = fmt.Errorf("upstream rate limit (429) on credential %s (retry after %ds): %s", route.Credential.ID, retryAfter, strings.TrimSpace(bodyStr))
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
-			time.Sleep(calculateBackoff(i))
+			sleepCtx(ctx, calculateBackoff(i))
 			continue
 		}
 
@@ -881,7 +916,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
-			time.Sleep(calculateBackoff(i))
+			sleepCtx(ctx, calculateBackoff(i))
 			continue
 		}
 
@@ -898,7 +933,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 
 			// If running smart routing (prism-auto/roozy-auto/auto) and more candidate routes exist, failover to next candidate!
 			if (req.Model == "prism-auto" || req.Model == "roozy-auto" || req.Model == "auto") && i < len(routes)-1 {
-				time.Sleep(calculateBackoff(i))
+				sleepCtx(ctx, calculateBackoff(i))
 				continue
 			}
 			return nil, lastErr
@@ -1004,7 +1039,13 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		}
 
 		streamInterrupted := false
-		if err := scanner.Err(); err != nil {
+		if err := scanner.Err(); err != nil && ctx.Err() != nil {
+			// The client disconnected; the upstream read was canceled with it.
+			if !forwardedAny {
+				return nil, ErrClientCanceled
+			}
+			log.Printf("client disconnected mid-stream: %v", err)
+		} else if err != nil {
 			if !forwardedAny {
 				log.Printf("stream pre-token error, retrying next route: %v", err)
 				lastErr = fmt.Errorf("stream interrupted before first token: %w", err)
@@ -1012,7 +1053,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				if httpResp.StatusCode >= 429 {
 					_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, 0)
 				}
-				time.Sleep(calculateBackoff(i))
+				sleepCtx(ctx, calculateBackoff(i))
 				continue
 			}
 			log.Printf("stream interrupted mid-response: %v", err)

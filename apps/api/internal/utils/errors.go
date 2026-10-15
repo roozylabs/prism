@@ -45,16 +45,21 @@ func RespondWithError(c *gin.Context, status int, errType string, message string
 
 // Standard User-Friendly Messages
 const (
-	MsgRateLimitExceeded  = "All API keys for this provider have temporarily reached their usage limit. Please wait a moment or try again later."
-	MsgDailyQuotaExceeded = "The daily free usage limit for this model has been reached for today. It will reset automatically at 00:00 UTC."
-	MsgNoCredentials      = "No active API keys are available for this provider. Please check your Credentials Pool."
-	MsgModelNotFound      = "The requested AI model is unavailable or has been disabled."
-	MsgModelNotAllowed   = "You do not have permission to access the requested model."
-	MsgAuthFailed         = "Invalid or expired API credential for provider."
-	MsgUpstreamTimeout    = "The upstream AI provider timed out while processing your request. Please try again in a moment."
-	MsgUpstreamConnection = "Unable to connect to the upstream AI provider. Please try again later."
-	MsgGenericError       = "An unexpected error occurred while processing your request. Please try again later."
+	MsgRateLimitExceeded   = "All API keys for this provider have temporarily reached their usage limit. Please wait a moment or try again later."
+	MsgDailyQuotaExceeded  = "The daily free usage limit for this model has been reached for today. It will reset automatically at 00:00 UTC."
+	MsgNoCredentials       = "No active API keys are available for this provider. Please check your Credentials Pool."
+	MsgModelNotFound       = "The requested AI model is unavailable or has been disabled."
+	MsgModelNotAllowed     = "You do not have permission to access the requested model."
+	MsgAuthFailed          = "Invalid or expired API credential for provider."
+	MsgUpstreamTimeout     = "The upstream AI provider timed out while processing your request. Please try again in a moment."
+	MsgUpstreamConnection  = "Unable to connect to the upstream AI provider. Please try again later."
+	MsgGenericError        = "An unexpected error occurred while processing your request. Please try again later."
+	MsgClientClosedRequest = "The request was canceled by the client before a response was produced."
 )
+
+// StatusClientClosedRequest is the non-standard status (nginx 499) recorded
+// when the client disconnects before the gateway responds.
+const StatusClientClosedRequest = 499
 
 var uuidRegex = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 
@@ -78,6 +83,11 @@ func CleanUpstreamError(err error) (statusCode int, errType string, errCode stri
 
 	errStr := err.Error()
 	lowerStr := strings.ToLower(errStr)
+
+	// The caller disconnected before a response was produced (nginx's 499).
+	if strings.Contains(lowerStr, "client canceled the request") {
+		return StatusClientClosedRequest, "api_error", "client_closed_request", MsgClientClosedRequest
+	}
 
 	// 1. Check known keywords for Timeouts & Network Failures
 	if strings.Contains(lowerStr, "timeout") || strings.Contains(lowerStr, "deadline exceeded") {
