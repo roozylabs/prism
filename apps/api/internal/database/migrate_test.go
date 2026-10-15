@@ -49,6 +49,25 @@ func TestMigrationsFromEmptyDatabase(t *testing.T) {
 		t.Fatalf("migrations leave %d @prism.local seed accounts behind", seeded)
 	}
 
+	// Every foreign key needs an index that starts with its column, or
+	// cascades and tenant filters scan the whole table.
+	if unindexed := queryStrings(t, dbURL, `
+		SELECT DISTINCT c.conrelid::regclass || '.' || a.attname
+		FROM pg_constraint c
+		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+		WHERE c.contype = 'f' AND array_length(c.conkey, 1) = 1
+		  AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.conrelid AND i.indkey[0] = c.conkey[1])`); len(unindexed) > 0 {
+		t.Fatalf("foreign keys without an index: %v", unindexed)
+	}
+	// Two indexes on the same columns double the cost of every write.
+	if duplicates := queryStrings(t, dbURL, `
+		SELECT string_agg(indexrelid::regclass::text, ' = ')
+		FROM pg_index
+		GROUP BY indrelid, indkey, indexprs::text, indpred::text
+		HAVING count(*) > 1`); len(duplicates) > 0 {
+		t.Fatalf("duplicate indexes: %v", duplicates)
+	}
+
 	if err := m.Down(); err != nil {
 		t.Fatalf("down: %v", err)
 	}
@@ -108,6 +127,27 @@ func open(t *testing.T, dbURL string) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func queryStrings(t *testing.T, dbURL, query string) []string {
+	t.Helper()
+	rows, err := open(t, dbURL).Query(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func latestMigration(t *testing.T) uint {
