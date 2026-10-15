@@ -26,7 +26,10 @@ services:
       NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com,http://localhost:3000}
-      RUN_MIGRATIONS: "true"
+      # Schema changes are applied only by the one-shot migrator below. If the
+      # API containers migrated on startup too, blue and green would race each
+      # other and the migrator for the same DDL locks.
+      RUN_MIGRATIONS: "false"
     ports:
       - "${SERVER_PORT:-8080}:8080"
     depends_on:
@@ -34,6 +37,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     networks:
       prism-network:
         aliases:
@@ -72,7 +77,10 @@ services:
       NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com,http://localhost:3000}
-      RUN_MIGRATIONS: "true"
+      # Schema changes are applied only by the one-shot migrator below. If the
+      # API containers migrated on startup too, blue and green would race each
+      # other and the migrator for the same DDL locks.
+      RUN_MIGRATIONS: "false"
     ports:
       - "${API_GREEN_PORT:-8085}:8080"
     depends_on:
@@ -80,6 +88,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     networks:
       prism-network:
         aliases:
@@ -94,6 +104,9 @@ services:
   # One-shot database migration job (runs before blue-green cutover)
   migrator:
     image: ghcr.io/roozylabs/prism-api:latest
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
     command: ["./server", "--migrate-only"]
     container_name: prism-api-migrator
     restart: "no"
