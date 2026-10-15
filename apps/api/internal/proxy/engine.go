@@ -290,7 +290,7 @@ func (e *Engine) logRoutingDecision(ctx context.Context, userID string, decision
 
 	// Publish to Redis for SSE streaming
 	if e.publisher != nil {
-		_ = e.publisher.Publish(ctx, "ROUTING_DECISION", map[string]interface{}{
+		_ = e.publisher.Publish(ctx, userID, "ROUTING_DECISION", map[string]interface{}{
 			"requestId":        decision.RequestID,
 			"promptPreview":    decision.PromptPreview,
 			"task":             decision.Task,
@@ -359,21 +359,13 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		activeCredName = getCredentialDisplayName(routes[0].Credential)
 	}
 
-	_ = e.cooldown.TrackActiveStream(ctx, reqID, req.Model, gwKeyID, activeCredName)
-	if e.publisher != nil {
-		if summary, err := e.cooldown.GetActiveStreams(ctx); err == nil {
-			_ = e.publisher.Publish(ctx, "active_streams_update", summary)
-		}
-	}
+	_ = e.cooldown.TrackActiveStream(ctx, reqID, userID, req.Model, gwKeyID, activeCredName)
+	e.publishActiveStreams(ctx, userID)
 
 	defer func() {
 		bgCtx := context.Background()
 		_ = e.cooldown.UntrackActiveStream(bgCtx, reqID)
-		if e.publisher != nil {
-			if summary, err := e.cooldown.GetActiveStreams(bgCtx); err == nil {
-				_ = e.publisher.Publish(bgCtx, "active_streams_update", summary)
-			}
-		}
+		e.publishActiveStreams(bgCtx, userID)
 	}()
 
 	var lastErr error
@@ -387,12 +379,8 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		}
 		if i > 0 {
 			retryCount++
-			_ = e.cooldown.TrackActiveStream(ctx, reqID, req.Model, gwKeyID, getCredentialDisplayName(route.Credential))
-			if e.publisher != nil {
-				if summary, err := e.cooldown.GetActiveStreams(ctx); err == nil {
-					_ = e.publisher.Publish(ctx, "active_streams_update", summary)
-				}
-			}
+			_ = e.cooldown.TrackActiveStream(ctx, reqID, userID, req.Model, gwKeyID, getCredentialDisplayName(route.Credential))
+			e.publishActiveStreams(ctx, userID)
 		}
 
 		var apiKey string
@@ -468,7 +456,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			if isQuarantined, _ := e.cooldown.RecordServerError(ctx, route.Credential.ID, 504); isQuarantined {
 				if e.publisher != nil {
-					_ = e.publisher.Publish(ctx, "CREDENTIAL_QUARANTINED", map[string]interface{}{
+					_ = e.publisher.Publish(ctx, credentialOwner(route.Credential), "CREDENTIAL_QUARANTINED", map[string]interface{}{
 						"credentialId": route.Credential.ID,
 						"reason":       "circuit_breaker_50x",
 						"statusCode":   504,
@@ -497,12 +485,12 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		if httpResp.StatusCode == http.StatusTooManyRequests {
 			bodyStr := string(body)
 			retryAfter := determineCooldownDuration(httpResp.Header, bodyStr)
-			e.extractAndSaveQuota(ctx, route.Credential.ID, httpResp.Header, true, retryAfter, bodyStr)
+			e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 			_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, retryAfter)
 			RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventCooldown, route.Credential.ID, route.Credential.ProviderID)
 			go e.syncCredentialHealth(context.Background(), route.Credential, true, false)
 			if e.publisher != nil {
-				_ = e.publisher.Publish(ctx, "CREDENTIAL_COOLDOWN_STARTED", map[string]interface{}{
+				_ = e.publisher.Publish(ctx, credentialOwner(route.Credential), "CREDENTIAL_COOLDOWN_STARTED", map[string]interface{}{
 					"credentialId": route.Credential.ID,
 					"retryAfter":   retryAfter,
 					"model":        req.Model,
@@ -521,7 +509,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			bodyLower := strings.ToLower(bodyStr)
 			if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "limit") || strings.Contains(bodyLower, "exhausted") || strings.Contains(bodyLower, "too many") || strings.Contains(bodyLower, "resource_exhausted") {
 				retryAfter := determineCooldownDuration(httpResp.Header, bodyStr)
-				e.extractAndSaveQuota(ctx, route.Credential.ID, httpResp.Header, true, retryAfter, bodyStr)
+				e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 				_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, retryAfter)
 				RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventExhaustion, route.Credential.ID, route.Credential.ProviderID)
 				go e.syncCredentialHealth(context.Background(), route.Credential, true, true)
@@ -544,7 +532,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		if httpResp.StatusCode >= 500 {
 			if isQuarantined, _ := e.cooldown.RecordServerError(ctx, route.Credential.ID, httpResp.StatusCode); isQuarantined {
 				if e.publisher != nil {
-					_ = e.publisher.Publish(ctx, "CREDENTIAL_QUARANTINED", map[string]interface{}{
+					_ = e.publisher.Publish(ctx, credentialOwner(route.Credential), "CREDENTIAL_QUARANTINED", map[string]interface{}{
 						"credentialId": route.Credential.ID,
 						"reason":       "circuit_breaker_50x",
 						"statusCode":   httpResp.StatusCode,
@@ -580,7 +568,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		// Success → reset 50x error count
 		_ = e.cooldown.RecordSuccess(ctx, route.Credential.ID)
 		_ = e.creds.IncrementUsage(ctx, route.Credential.ID)
-		e.extractAndSaveQuota(ctx, route.Credential.ID, httpResp.Header, false, 0, "")
+		e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, false, 0, "")
 		go e.syncCredentialHealth(context.Background(), route.Credential, false, false)
 
 		resp, err := route.Adapter.ParseResponse(bytes.NewReader(body))
@@ -727,21 +715,13 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		activeCredName = getCredentialDisplayName(routes[0].Credential)
 	}
 
-	_ = e.cooldown.TrackActiveStream(ctx, reqID, req.Model, gwKeyID, activeCredName)
-	if e.publisher != nil {
-		if summary, err := e.cooldown.GetActiveStreams(ctx); err == nil {
-			_ = e.publisher.Publish(ctx, "active_streams_update", summary)
-		}
-	}
+	_ = e.cooldown.TrackActiveStream(ctx, reqID, userID, req.Model, gwKeyID, activeCredName)
+	e.publishActiveStreams(ctx, userID)
 
 	defer func() {
 		bgCtx := context.Background()
 		_ = e.cooldown.UntrackActiveStream(bgCtx, reqID)
-		if e.publisher != nil {
-			if summary, err := e.cooldown.GetActiveStreams(bgCtx); err == nil {
-				_ = e.publisher.Publish(bgCtx, "active_streams_update", summary)
-			}
-		}
+		e.publishActiveStreams(bgCtx, userID)
 	}()
 
 	var lastErr error
@@ -755,12 +735,8 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		}
 		if i > 0 {
 			retryCount++
-			_ = e.cooldown.TrackActiveStream(c.Request.Context(), reqID, req.Model, gwKeyID, getCredentialDisplayName(route.Credential))
-			if e.publisher != nil {
-				if summary, err := e.cooldown.GetActiveStreams(c.Request.Context()); err == nil {
-					_ = e.publisher.Publish(c.Request.Context(), "active_streams_update", summary)
-				}
-			}
+			_ = e.cooldown.TrackActiveStream(c.Request.Context(), reqID, userID, req.Model, gwKeyID, getCredentialDisplayName(route.Credential))
+			e.publishActiveStreams(c.Request.Context(), userID)
 		}
 
 		var apiKey string
@@ -836,7 +812,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			if isQuarantined, _ := e.cooldown.RecordServerError(c.Request.Context(), route.Credential.ID, 504); isQuarantined {
 				if e.publisher != nil {
-					_ = e.publisher.Publish(c.Request.Context(), "CREDENTIAL_QUARANTINED", map[string]interface{}{
+					_ = e.publisher.Publish(c.Request.Context(), credentialOwner(route.Credential), "CREDENTIAL_QUARANTINED", map[string]interface{}{
 						"credentialId": route.Credential.ID,
 						"reason":       "circuit_breaker_50x",
 						"statusCode":   504,
@@ -855,11 +831,11 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			bodyStr := string(bodyBytes)
 
 			retryAfter := determineCooldownDuration(httpResp.Header, bodyStr)
-			e.extractAndSaveQuota(c.Request.Context(), route.Credential.ID, httpResp.Header, true, retryAfter, bodyStr)
+			e.extractAndSaveQuota(c.Request.Context(), route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 			_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, retryAfter)
 			RecordCredentialEventTelemetry(c.Request.Context(), telemetry.CredentialEventCooldown, route.Credential.ID, route.Credential.ProviderID)
 			if e.publisher != nil {
-				_ = e.publisher.Publish(c.Request.Context(), "CREDENTIAL_COOLDOWN_STARTED", map[string]interface{}{
+				_ = e.publisher.Publish(c.Request.Context(), credentialOwner(route.Credential), "CREDENTIAL_COOLDOWN_STARTED", map[string]interface{}{
 					"credentialId": route.Credential.ID,
 					"retryAfter":   retryAfter,
 					"model":        req.Model,
@@ -881,7 +857,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			bodyLower := strings.ToLower(bodyStr)
 			if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "limit") || strings.Contains(bodyLower, "exhausted") || strings.Contains(bodyLower, "too many") || strings.Contains(bodyLower, "resource_exhausted") {
 				retryAfter := determineCooldownDuration(httpResp.Header, bodyStr)
-				e.extractAndSaveQuota(c.Request.Context(), route.Credential.ID, httpResp.Header, true, retryAfter, bodyStr)
+				e.extractAndSaveQuota(c.Request.Context(), route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 				_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, retryAfter)
 				RecordCredentialEventTelemetry(c.Request.Context(), telemetry.CredentialEventExhaustion, route.Credential.ID, route.Credential.ProviderID)
 				lastErr = fmt.Errorf("upstream rate/quota limit (%d) on credential %s: %s", httpResp.StatusCode, route.Credential.ID, strings.TrimSpace(bodyStr))
@@ -904,7 +880,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			release()
 			if isQuarantined, _ := e.cooldown.RecordServerError(c.Request.Context(), route.Credential.ID, httpResp.StatusCode); isQuarantined {
 				if e.publisher != nil {
-					_ = e.publisher.Publish(c.Request.Context(), "CREDENTIAL_QUARANTINED", map[string]interface{}{
+					_ = e.publisher.Publish(c.Request.Context(), credentialOwner(route.Credential), "CREDENTIAL_QUARANTINED", map[string]interface{}{
 						"credentialId": route.Credential.ID,
 						"reason":       "circuit_breaker_50x",
 						"statusCode":   httpResp.StatusCode,
@@ -943,7 +919,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		_ = e.cooldown.RecordSuccess(c.Request.Context(), route.Credential.ID)
 		_ = e.creds.IncrementUsage(c.Request.Context(), route.Credential.ID)
 		_ = e.creds.UpdateStatus(c.Request.Context(), route.Credential.ID, "active")
-		e.extractAndSaveQuota(c.Request.Context(), route.Credential.ID, httpResp.Header, false, 0, "")
+		e.extractAndSaveQuota(c.Request.Context(), route.Credential, httpResp.Header, false, 0, "")
 		defer func() {
 			_ = httpResp.Body.Close()
 			release()
@@ -1212,7 +1188,27 @@ func getCredentialDisplayName(c *models.Credential) string {
 	return "active-cred"
 }
 
-func (e *Engine) extractAndSaveQuota(ctx context.Context, credID string, headers http.Header, is429 bool, retryAfterSec int, bodyStr string) {
+// publishActiveStreams sends userID the summary of its own in-flight requests.
+func (e *Engine) publishActiveStreams(ctx context.Context, userID string) {
+	if e.publisher == nil || userID == "" {
+		return
+	}
+	if summary, err := e.cooldown.GetActiveStreams(ctx, userID); err == nil {
+		_ = e.publisher.Publish(ctx, userID, "active_streams_update", summary)
+	}
+}
+
+// credentialOwner is the user whose dashboard receives events about cred.
+// A credential without an owner has no one to notify.
+func credentialOwner(cred *models.Credential) string {
+	if cred == nil || cred.UserID == nil {
+		return ""
+	}
+	return *cred.UserID
+}
+
+func (e *Engine) extractAndSaveQuota(ctx context.Context, cred *models.Credential, headers http.Header, is429 bool, retryAfterSec int, bodyStr string) {
+	credID := cred.ID
 	if credID == "" || e.cooldown == nil {
 		return
 	}
@@ -1299,7 +1295,7 @@ func (e *Engine) extractAndSaveQuota(ctx context.Context, credID string, headers
 	if hasData {
 		_ = e.cooldown.SaveCredentialQuota(ctx, credID, quota)
 		if e.publisher != nil {
-			_ = e.publisher.Publish(ctx, "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
+			_ = e.publisher.Publish(ctx, credentialOwner(cred), "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
 				"credentialId": credID,
 				"quota":        quota,
 			})
@@ -1308,7 +1304,7 @@ func (e *Engine) extractAndSaveQuota(ctx context.Context, credID string, headers
 		// On successful 200 OK request with no rate limit headers, clear stale error quota!
 		_ = e.cooldown.DeleteCredentialQuota(ctx, credID)
 		if e.publisher != nil {
-			_ = e.publisher.Publish(ctx, "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
+			_ = e.publisher.Publish(ctx, credentialOwner(cred), "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
 				"credentialId": credID,
 				"quota":        nil,
 			})

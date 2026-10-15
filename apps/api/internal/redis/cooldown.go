@@ -137,6 +137,7 @@ func (s *CooldownStore) DeleteCredentialQuota(ctx context.Context, credentialID 
 const ActiveRequestsHashKey = "gateway:active_requests"
 
 type ActiveRequestRecord struct {
+	UserID       string `json:"userId"`
 	Model        string `json:"model"`
 	GatewayKeyID string `json:"gatewayKeyId"`
 	Credential   string `json:"credential"`
@@ -150,11 +151,12 @@ type ActiveStreamsSummary struct {
 	ByKey        map[string]int64 `json:"byKey"`
 }
 
-func (s *CooldownStore) TrackActiveStream(ctx context.Context, reqID, modelSlug, gatewayKeyID, credName string) error {
+func (s *CooldownStore) TrackActiveStream(ctx context.Context, reqID, userID, modelSlug, gatewayKeyID, credName string) error {
 	if reqID == "" {
 		return nil
 	}
 	rec := ActiveRequestRecord{
+		UserID:       userID,
 		Model:        modelSlug,
 		GatewayKeyID: gatewayKeyID,
 		Credential:   utils.MaskEmailName(credName),
@@ -182,7 +184,10 @@ func (s *CooldownStore) DecrementActiveStream(ctx context.Context, modelSlug, ga
 	return nil
 }
 
-func (s *CooldownStore) GetActiveStreams(ctx context.Context) (*ActiveStreamsSummary, error) {
+// GetActiveStreams summarizes in-flight requests. With a userID it counts only
+// that user's requests; an empty userID counts every request, for checks that
+// must see all traffic, such as refusing to delete a credential in use.
+func (s *CooldownStore) GetActiveStreams(ctx context.Context, userID string) (*ActiveStreamsSummary, error) {
 	summary := &ActiveStreamsSummary{
 		TotalActive:  0,
 		ByModel:      make(map[string]int64),
@@ -208,6 +213,9 @@ func (s *CooldownStore) GetActiveStreams(ctx context.Context) (*ActiveStreamsSum
 		// Clean up any requests older than 2 minutes (120s) as stale
 		if rec.StartedAt > 0 && (now-rec.StartedAt) > 120 {
 			staleKeys = append(staleKeys, reqID)
+			continue
+		}
+		if userID != "" && rec.UserID != userID {
 			continue
 		}
 

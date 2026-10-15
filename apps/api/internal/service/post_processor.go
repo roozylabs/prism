@@ -135,9 +135,11 @@ func (p *AsyncPostProcessor) processTask(task *PostProcessTask) {
 	if p.eventPublisher != nil {
 		keyPrefix := ""
 		gatewayKeyName := ""
+		ownerID := ""
 		if task.GatewayKey != nil {
 			keyPrefix = task.GatewayKey.KeyPrefix
 			gatewayKeyName = task.GatewayKey.Name
+			ownerID = task.GatewayKey.UserID
 		}
 
 		eventData := map[string]interface{}{
@@ -158,7 +160,7 @@ func (p *AsyncPostProcessor) processTask(task *PostProcessTask) {
 			"gatewayKeyName": gatewayKeyName,
 			"timestamp":      task.Log.CreatedAt,
 		}
-		_ = p.eventPublisher.Publish(ctx, "request_log_created", eventData)
+		_ = p.eventPublisher.Publish(ctx, ownerID, "request_log_created", eventData)
 	}
 
 	// 4. Record Cryptographic Audit Trail

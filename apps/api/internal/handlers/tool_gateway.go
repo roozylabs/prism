@@ -75,7 +75,7 @@ func (h *ToolGatewayHandler) ExecuteTool(c *gin.Context) {
 		{Name: toolName, Arguments: argsJSON},
 	})
 
-	_ = h.eventPub.Publish(c.Request.Context(), "TOOL_EXECUTED", map[string]interface{}{
+	_ = h.eventPub.Publish(c.Request.Context(), gatewayKey.UserID, "TOOL_EXECUTED", map[string]interface{}{
 		"executionId": executionID,
 		"tool":        toolName,
 		"backend":     result.Backend,

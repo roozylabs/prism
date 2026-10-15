@@ -413,7 +413,7 @@ func (h *CredentialHandler) Delete(c *gin.Context) {
 
 	// 1. Guard against deleting credential with active in-flight streams
 	if h.cooldownStore != nil {
-		if summary, err := h.cooldownStore.GetActiveStreams(c.Request.Context()); err == nil {
+		if summary, err := h.cooldownStore.GetActiveStreams(c.Request.Context(), ""); err == nil {
 			maskedName := utils.MaskEmailName(cred.Name)
 			count := summary.ByCredential[maskedName]
 			if count == 0 && cred.MaskedKey != "" {
@@ -475,12 +475,12 @@ func (h *CredentialHandler) ResetCooldown(c *gin.Context) {
 	}
 	_ = h.credentials.ResetErrorCount(c.Request.Context(), credID)
 	if h.publisher != nil {
-		_ = h.publisher.Publish(c.Request.Context(), "CREDENTIAL_STATUS_CHANGED", map[string]interface{}{
+		_ = h.publisher.Publish(c.Request.Context(), userID, "CREDENTIAL_STATUS_CHANGED", map[string]interface{}{
 			"credentialId": credID,
 			"status":       "active",
 			"healthScore":  100.00,
 		})
-		_ = h.publisher.Publish(c.Request.Context(), "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
+		_ = h.publisher.Publish(c.Request.Context(), userID, "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
 			"credentialId": credID,
 			"quota":        nil,
 		})
@@ -586,12 +586,12 @@ func (h *CredentialHandler) Test(c *gin.Context) {
 		}
 		_ = h.credentials.ResetErrorCount(c.Request.Context(), credID)
 		if h.publisher != nil {
-			_ = h.publisher.Publish(c.Request.Context(), "CREDENTIAL_STATUS_CHANGED", map[string]interface{}{
+			_ = h.publisher.Publish(c.Request.Context(), userID, "CREDENTIAL_STATUS_CHANGED", map[string]interface{}{
 				"credentialId": credID,
 				"status":       "active",
 				"healthScore":  100.00,
 			})
-			_ = h.publisher.Publish(c.Request.Context(), "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
+			_ = h.publisher.Publish(c.Request.Context(), userID, "CREDENTIAL_QUOTA_UPDATED", map[string]interface{}{
 				"credentialId": credID,
 				"quota":        nil,
 			})

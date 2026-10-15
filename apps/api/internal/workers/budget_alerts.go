@@ -64,7 +64,7 @@ func (s *BudgetAlertScanner) Run(ctx context.Context) {
 			continue
 		}
 		if inserted {
-			_ = s.publisher.Publish(ctx, "budget_alert", map[string]interface{}{
+			_ = s.publisher.Publish(ctx, b.UserID, "budget_alert", map[string]interface{}{
 				"budget_id":     b.ID,
 				"alert_type":    alertType,
 				"usage_percent": usagePercent,
