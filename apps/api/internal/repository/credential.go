@@ -369,6 +369,45 @@ func (r *CredentialRepository) UpdateStatus(ctx context.Context, credentialID, s
 	return err
 }
 
+// ExhaustedCredential is a credential currently marked exhausted.
+type ExhaustedCredential struct {
+	ID          string
+	HealthScore float64
+}
+
+// ListExhausted returns the enabled credentials whose status is exhausted.
+func (r *CredentialRepository) ListExhausted(ctx context.Context) ([]ExhaustedCredential, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, COALESCE(health_score, 100.00) FROM credentials WHERE status = 'exhausted' AND enabled = true`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var creds []ExhaustedCredential
+	for rows.Next() {
+		var c ExhaustedCredential
+		if err := rows.Scan(&c.ID, &c.HealthScore); err != nil {
+			return nil, err
+		}
+		creds = append(creds, c)
+	}
+	return creds, rows.Err()
+}
+
+// RecoverExhausted sets a new status on a credential only if it is still
+// exhausted, so a concurrent status change (e.g. disabled) is not overwritten.
+func (r *CredentialRepository) RecoverExhausted(ctx context.Context, credentialID, status string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE credentials SET status = $1, updated_at = NOW() WHERE id = $2 AND status = 'exhausted'`,
+		status, credentialID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 func (r *CredentialRepository) UpdateHealthAndStatus(ctx context.Context, credentialID string, healthScore float64, status string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE credentials SET health_score = $1, status = $2, updated_at = NOW() WHERE id = $3`,

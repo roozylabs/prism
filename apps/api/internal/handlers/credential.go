@@ -859,7 +859,9 @@ func (h *CredentialHandler) enrichCredentialQuota(ctx context.Context, cred *mod
 		remQuota = cred.Quota.RemainingRequests
 		if cred.Quota.LimitRequests > 0 {
 			hasQuotaLimit = true
-			if cred.Quota.RemainingRequests <= 0 {
+			// The quota snapshot outlives the exhaustion; once the cooldown
+			// has expired the quota has reset.
+			if cred.Quota.RemainingRequests <= 0 && cred.IsCoolingDown {
 				isExhausted = true
 			}
 		}
