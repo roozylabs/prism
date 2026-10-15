@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/roozylabs/prism/internal/httputil"
+	"github.com/roozylabs/prism/internal/middleware"
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/proxy"
 	goredis "github.com/roozylabs/prism/internal/redis"
@@ -172,7 +173,7 @@ func (h *SimulateHandler) Simulate(c *gin.Context) {
 
 	var healthScores map[string]float64
 	if h.health != nil {
-		healthScores = h.health.Scores(c.Request.Context())
+		healthScores = h.health.ScoresFor(c.Request.Context(), middleware.GetTenantContext(c).OrgID)
 	}
 
 	scores := proxy.ScoreCandidatesWithBudgetAndTelemetry(candidates, chars, policy, req.BudgetStatus, telemetryMap, healthScores)
