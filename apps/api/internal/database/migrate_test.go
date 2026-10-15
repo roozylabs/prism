@@ -39,6 +39,16 @@ func TestMigrationsFromEmptyDatabase(t *testing.T) {
 		t.Fatalf("after up: version %d dirty=%v, want version %d clean", version, dirty, want)
 	}
 
+	// The role/plan matrix accounts share a published password; they belong
+	// in cmd/seed for development, never in a migrated database.
+	var seeded int
+	if err := open(t, dbURL).QueryRow(`SELECT count(*) FROM "user" WHERE email LIKE '%@prism.local'`).Scan(&seeded); err != nil {
+		t.Fatal(err)
+	}
+	if seeded > 0 {
+		t.Fatalf("migrations leave %d @prism.local seed accounts behind", seeded)
+	}
+
 	if err := m.Down(); err != nil {
 		t.Fatalf("down: %v", err)
 	}
