@@ -164,7 +164,9 @@ func (s *AuthService) Signup(ctx context.Context, name, email, password, ip, ua 
 func (s *AuthService) CreateOAuthSession(ctx context.Context, email, name, image, provider, ip, ua string) (*LoginResponse, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
-		email = provider + "_user@prism.local"
+		// Without a verified email there is no account to match; falling back
+		// to a placeholder would put every such sign-in on one shared account.
+		return nil, errors.New("oauth sign-in requires a verified email")
 	}
 
 	user, err := s.users.FindByEmail(ctx, email)

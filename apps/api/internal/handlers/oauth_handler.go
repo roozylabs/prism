@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -200,10 +201,14 @@ func (h *GoogleOAuthHandler) Callback(c *gin.Context) {
 	renderPopupResult(c, true, userEmail, "")
 }
 
+// renderPopupResult reports the result to the opener window. email and errMsg
+// can carry query input (the provider's error parameter), so they are escaped
+// for HTML and passed to the script as JSON, which also escapes '<' and '>'.
 func renderPopupResult(c *gin.Context, success bool, email, errMsg string) {
-	c.Header("Content-Type", "text/html")
+	c.Header("Content-Type", "text/html; charset=utf-8")
 	if success {
-		html := fmt.Sprintf(`<!DOCTYPE html>
+		emailJS, _ := json.Marshal(email)
+		page := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head><title>Google OAuth Success</title></head>
 <body style="font-family: system-ui; background: #141414; color: #fff; text-align: center; padding-top: 40px;">
@@ -212,15 +217,16 @@ func renderPopupResult(c *gin.Context, success bool, email, errMsg string) {
   <p>Closing window...</p>
   <script>
     if (window.opener) {
-      window.opener.postMessage({ type: 'google_oauth_success', email: '%s' }, '*');
+      window.opener.postMessage({ type: 'google_oauth_success', email: %s }, '*');
     }
     setTimeout(() => window.close(), 1200);
   </script>
 </body>
-</html>`, email, email)
-		c.String(http.StatusOK, html)
+</html>`, html.EscapeString(email), emailJS)
+		c.String(http.StatusOK, page)
 	} else {
-		html := fmt.Sprintf(`<!DOCTYPE html>
+		errJS, _ := json.Marshal(errMsg)
+		page := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head><title>Google OAuth Failed</title></head>
 <body style="font-family: system-ui; background: #141414; color: #ff4d4f; text-align: center; padding-top: 40px;">
@@ -228,11 +234,11 @@ func renderPopupResult(c *gin.Context, success bool, email, errMsg string) {
   <p>%s</p>
   <script>
     if (window.opener) {
-      window.opener.postMessage({ type: 'google_oauth_error', error: '%s' }, '*');
+      window.opener.postMessage({ type: 'google_oauth_error', error: %s }, '*');
     }
   </script>
 </body>
-</html>`, errMsg, errMsg)
-		c.String(http.StatusBadRequest, html)
+</html>`, html.EscapeString(errMsg), errJS)
+		c.String(http.StatusBadRequest, page)
 	}
 }

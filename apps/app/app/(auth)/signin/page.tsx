@@ -54,6 +54,14 @@ function SignInForm() {
         toast.error('OAuth sign-in failed. Please try again or sign in with your password.');
       } else if (oauthError === 'missing_code') {
         toast.error('OAuth authorization code was missing.');
+      } else if (oauthError === 'invalid_state') {
+        toast.error('This sign-in link expired or was not started here. Please sign in again.');
+      } else if (oauthError === 'email_unverified') {
+        toast.error('Your account has no verified email address. Verify an email with the provider, then try again.');
+      } else if (oauthError === 'oauth_not_configured') {
+        toast.error('This sign-in method is not available. Sign in with your email and password.');
+      } else if (oauthError === 'oauth_failed' || oauthError === 'oauth_denied') {
+        toast.error('Sign-in with the provider did not complete. Please try again.');
       } else {
         toast.error(`Authentication error: ${oauthError}`);
       }

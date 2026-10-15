@@ -1,7 +1,12 @@
 package handlers
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -9,19 +14,60 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/roozylabs/prism/internal/httputil"
 	"github.com/roozylabs/prism/internal/service"
 )
 
+// oauthStateCookie carries the state a sign-in started with, so the callback
+// can tell its own redirect from a forged one.
+const (
+	oauthStateCookie = "oauth_state"
+	oauthStatePath   = "/api/auth"
+	oauthStateTTL    = 10 * time.Minute
+)
+
+var errUnverifiedEmail = errors.New("provider returned no verified email")
+
+type oauthSessionCreator interface {
+	CreateOAuthSession(ctx context.Context, email, name, image, provider, ip, ua string) (*service.LoginResponse, error)
+}
+
+// oauthEndpoints are the provider URLs sign-in calls; tests point them at a
+// local server.
+type oauthEndpoints struct {
+	googleAuth, googleToken, googleUserInfo          string
+	githubAuth, githubToken, githubUser, githubEmail string
+}
+
+var defaultOAuthEndpoints = oauthEndpoints{
+	googleAuth:     "https://accounts.google.com/o/oauth2/v2/auth",
+	googleToken:    "https://oauth2.googleapis.com/token",
+	googleUserInfo: "https://www.googleapis.com/oauth2/v2/userinfo",
+	githubAuth:     "https://github.com/login/oauth/authorize",
+	githubToken:    "https://github.com/login/oauth/access_token",
+	githubUser:     "https://api.github.com/user",
+	githubEmail:    "https://api.github.com/user/emails",
+}
+
 type OAuthHandler struct {
-	authService *service.AuthService
+	authService oauthSessionCreator
+	endpoints   oauthEndpoints
+	client      *http.Client
+	// allowDevLogin signs in a fixed developer account when a provider has no
+	// client ID. Only APP_ENV=development, set explicitly, enables it.
+	allowDevLogin bool
 }
 
 func NewOAuthHandler(authService *service.AuthService) *OAuthHandler {
-	return &OAuthHandler{authService: authService}
+	return &OAuthHandler{
+		authService:   authService,
+		endpoints:     defaultOAuthEndpoints,
+		client:        &http.Client{Timeout: 15 * time.Second},
+		allowDevLogin: strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "development"),
+	}
 }
 
 func (h *OAuthHandler) getBaseURL(c *gin.Context) string {
@@ -77,254 +123,283 @@ func (h *OAuthHandler) InitiateOAuth(c *gin.Context) {
 		return
 	}
 
-	baseURL := h.getBaseURL(c)
-	state := uuid.New().String()
+	clientID, _ := oauthClient(provider)
+	if clientID == "" {
+		if h.allowDevLogin {
+			h.devLogin(c, provider)
+			return
+		}
+		c.Redirect(http.StatusTemporaryRedirect, "/signin?error=oauth_not_configured")
+		return
+	}
 
+	state, err := newOAuthState()
+	if err != nil {
+		httputil.RespondInternalError(c, "Failed to start OAuth sign-in", err, "OAUTH_STATE_FAILED")
+		return
+	}
+	setOAuthCookie(c, oauthStateCookie, state, int(oauthStateTTL.Seconds()), oauthStatePath)
+
+	redirectURI := fmt.Sprintf("%s/api/auth/%s/callback", h.getBaseURL(c), provider)
+	var authURL string
 	switch provider {
 	case "google":
-		clientID := os.Getenv("GOOGLE_CLIENT_ID")
-		if clientID != "" {
-			redirectURI := baseURL + "/api/auth/google/callback"
-			scopes := "openid email profile"
-			authURL := fmt.Sprintf(
-				"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=offline&prompt=consent&state=%s",
-				url.QueryEscape(clientID),
-				url.QueryEscape(redirectURI),
-				strings.ReplaceAll(url.QueryEscape(scopes), "+", "%20"),
-				url.QueryEscape(state),
-			)
-			c.Redirect(http.StatusTemporaryRedirect, authURL)
-			return
-		}
+		authURL = fmt.Sprintf(
+			"%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=offline&prompt=consent&state=%s",
+			h.endpoints.googleAuth,
+			url.QueryEscape(clientID),
+			url.QueryEscape(redirectURI),
+			strings.ReplaceAll(url.QueryEscape("openid email profile"), "+", "%20"),
+			url.QueryEscape(state),
+		)
 	case "github":
-		clientID := os.Getenv("GITHUB_CLIENT_ID")
-		if clientID != "" {
-			redirectURI := baseURL + "/api/auth/github/callback"
-			scopes := "read:user user:email"
-			authURL := fmt.Sprintf(
-				"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=%s&state=%s",
-				url.QueryEscape(clientID),
-				url.QueryEscape(redirectURI),
-				url.QueryEscape(scopes),
-				url.QueryEscape(state),
-			)
-			c.Redirect(http.StatusTemporaryRedirect, authURL)
-			return
-		}
+		authURL = fmt.Sprintf(
+			"%s?client_id=%s&redirect_uri=%s&scope=%s&state=%s",
+			h.endpoints.githubAuth,
+			url.QueryEscape(clientID),
+			url.QueryEscape(redirectURI),
+			url.QueryEscape("read:user user:email"),
+			url.QueryEscape(state),
+		)
 	}
+	c.Redirect(http.StatusTemporaryRedirect, authURL)
+}
 
-	// Developer / Default Environment Fallback OAuth login
+// devLogin signs in a fixed local developer account without any provider.
+func (h *OAuthHandler) devLogin(c *gin.Context, provider string) {
 	email := fmt.Sprintf("%s.developer@roozylabs.dev", provider)
 	name := fmt.Sprintf("%s Developer", strings.ToUpper(provider[:1])+provider[1:])
-	avatar := ""
-	if provider == "github" {
-		avatar = "https://github.com/identicons/" + state + ".png"
-	}
-
-	resp, err := h.authService.CreateOAuthSession(
-		c.Request.Context(),
-		email,
-		name,
-		avatar,
-		provider,
-		c.ClientIP(),
-		c.Request.UserAgent(),
-	)
+	resp, err := h.authService.CreateOAuthSession(c.Request.Context(), email, name, "", provider, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
 		httputil.RespondInternalError(c, "Failed to create OAuth session", err, "OAUTH_SESSION_CREATION_FAILED")
 		return
 	}
-
-	// Set HttpOnly, SameSite=Lax cookie for browser session
-	c.SetSameSite(http.SameSiteLaxMode)
-	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetCookie("auth_token", resp.Token, 7*24*3600, "/", "", isSecure, true)
-
-	// Redirect to dashboard
+	setOAuthCookie(c, "auth_token", resp.Token, 7*24*3600, "/")
 	c.Redirect(http.StatusTemporaryRedirect, "/")
 }
 
 func (h *OAuthHandler) OAuthCallback(c *gin.Context) {
 	provider := strings.ToLower(c.Param("provider"))
-	code := c.Query("code")
+	if provider != "google" && provider != "github" {
+		c.Redirect(http.StatusTemporaryRedirect, "/signin?error=unsupported_provider")
+		return
+	}
 
+	// The state check comes first: without it, anyone could finish a sign-in
+	// they did not start.
+	if !consumeOAuthState(c) {
+		c.Redirect(http.StatusTemporaryRedirect, "/signin?error=invalid_state")
+		return
+	}
+	if c.Query("error") != "" {
+		c.Redirect(http.StatusTemporaryRedirect, "/signin?error=oauth_denied")
+		return
+	}
+	code := c.Query("code")
 	if code == "" {
 		c.Redirect(http.StatusTemporaryRedirect, "/signin?error=missing_code")
 		return
 	}
 
-	baseURL := h.getBaseURL(c)
-	var email, name, avatar string
-
+	redirectURI := fmt.Sprintf("%s/api/auth/%s/callback", h.getBaseURL(c), provider)
+	var (
+		id  oauthIdentity
+		err error
+	)
 	switch provider {
 	case "google":
-		clientID := os.Getenv("GOOGLE_CLIENT_ID")
-		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-		redirectURI := baseURL + "/api/auth/google/callback"
-
-		form := url.Values{}
-		form.Set("code", code)
-		form.Set("client_id", clientID)
-		form.Set("client_secret", clientSecret)
-		form.Set("redirect_uri", redirectURI)
-		form.Set("grant_type", "authorization_code")
-
-		tokenResp, err := http.PostForm("https://oauth2.googleapis.com/token", form)
-		if err != nil {
-			log.Printf("[OAuth Google token error] %v", err)
-		} else if tokenResp != nil {
-			defer func() { _ = tokenResp.Body.Close() }()
-			bodyBytes, _ := io.ReadAll(tokenResp.Body)
-			if tokenResp.StatusCode != http.StatusOK {
-				log.Printf("[OAuth Google token status=%d] body=%s", tokenResp.StatusCode, string(bodyBytes))
-			} else {
-				var tokResult struct {
-					AccessToken string `json:"access_token"`
-				}
-				_ = json.Unmarshal(bodyBytes, &tokResult)
-
-				if tokResult.AccessToken != "" {
-					userReq, _ := http.NewRequest("GET", "https://www.googleapis.com/oauth2/v2/userinfo", nil)
-					userReq.Header.Set("Authorization", "Bearer "+tokResult.AccessToken)
-					userResp, userErr := http.DefaultClient.Do(userReq)
-					if userErr != nil {
-						log.Printf("[OAuth Google userinfo error] %v", userErr)
-					} else if userResp != nil {
-						defer func() { _ = userResp.Body.Close() }()
-						var uInfo struct {
-							Email   string `json:"email"`
-							Name    string `json:"name"`
-							Picture string `json:"picture"`
-						}
-						uBytes, _ := io.ReadAll(userResp.Body)
-						_ = json.Unmarshal(uBytes, &uInfo)
-						email = strings.TrimSpace(uInfo.Email)
-						name = strings.TrimSpace(uInfo.Name)
-						avatar = strings.TrimSpace(uInfo.Picture)
-					}
-				}
-			}
-		}
-
+		id, err = h.googleIdentity(c.Request.Context(), code, redirectURI)
 	case "github":
-		clientID := os.Getenv("GITHUB_CLIENT_ID")
-		clientSecret := os.Getenv("GITHUB_CLIENT_SECRET")
-		redirectURI := baseURL + "/api/auth/github/callback"
-
-		form := url.Values{}
-		form.Set("code", code)
-		form.Set("client_id", clientID)
-		form.Set("client_secret", clientSecret)
-		form.Set("redirect_uri", redirectURI)
-
-		req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Accept", "application/json")
-
-		tokenResp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			log.Printf("[OAuth GitHub token error] %v", err)
-		} else if tokenResp != nil {
-			defer func() { _ = tokenResp.Body.Close() }()
-			bodyBytes, _ := io.ReadAll(tokenResp.Body)
-			if tokenResp.StatusCode != http.StatusOK {
-				log.Printf("[OAuth GitHub token status=%d] body=%s", tokenResp.StatusCode, string(bodyBytes))
-			} else {
-				var tokResult struct {
-					AccessToken string `json:"access_token"`
-				}
-				_ = json.Unmarshal(bodyBytes, &tokResult)
-
-				if tokResult.AccessToken != "" {
-					userReq, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
-					userReq.Header.Set("Authorization", "Bearer "+tokResult.AccessToken)
-					userReq.Header.Set("Accept", "application/json")
-					userResp, userErr := http.DefaultClient.Do(userReq)
-					if userErr != nil {
-						log.Printf("[OAuth GitHub user error] %v", userErr)
-					} else if userResp != nil {
-						defer func() { _ = userResp.Body.Close() }()
-						var uInfo struct {
-							Email     string `json:"email"`
-							Name      string `json:"name"`
-							Login     string `json:"login"`
-							AvatarURL string `json:"avatar_url"`
-						}
-						uBytes, _ := io.ReadAll(userResp.Body)
-						_ = json.Unmarshal(uBytes, &uInfo)
-						email = strings.TrimSpace(uInfo.Email)
-						name = strings.TrimSpace(uInfo.Name)
-						if name == "" {
-							name = strings.TrimSpace(uInfo.Login)
-						}
-						avatar = strings.TrimSpace(uInfo.AvatarURL)
-					}
-
-					// If email is private on GitHub profile, fetch from /user/emails endpoint
-					if email == "" {
-						emailsReq, _ := http.NewRequest("GET", "https://api.github.com/user/emails", nil)
-						emailsReq.Header.Set("Authorization", "Bearer "+tokResult.AccessToken)
-						emailsReq.Header.Set("Accept", "application/json")
-						emailsResp, emailsErr := http.DefaultClient.Do(emailsReq)
-						if emailsErr == nil && emailsResp != nil && emailsResp.StatusCode == http.StatusOK {
-							defer func() { _ = emailsResp.Body.Close() }()
-							var emailsList []struct {
-								Email    string `json:"email"`
-								Primary  bool   `json:"primary"`
-								Verified bool   `json:"verified"`
-							}
-							eBytes, _ := io.ReadAll(emailsResp.Body)
-							_ = json.Unmarshal(eBytes, &emailsList)
-							for _, item := range emailsList {
-								if item.Primary && item.Verified {
-									email = strings.TrimSpace(item.Email)
-									break
-								}
-							}
-							if email == "" {
-								for _, item := range emailsList {
-									if item.Verified {
-										email = strings.TrimSpace(item.Email)
-										break
-									}
-								}
-							}
-							if email == "" && len(emailsList) > 0 {
-								email = strings.TrimSpace(emailsList[0].Email)
-							}
-						}
-					}
-				}
-			}
-		}
+		id, err = h.githubIdentity(c.Request.Context(), code, redirectURI)
 	}
-
-	if email == "" {
-		email = fmt.Sprintf("%s.user@roozylabs.dev", provider)
-	}
-	if name == "" {
-		name = fmt.Sprintf("%s Developer", strings.ToUpper(provider[:1])+provider[1:])
-	}
-
-	resp, err := h.authService.CreateOAuthSession(
-		c.Request.Context(),
-		email,
-		name,
-		avatar,
-		provider,
-		c.ClientIP(),
-		c.Request.UserAgent(),
-	)
 	if err != nil {
-		log.Printf("[OAuth Callback Session Error] provider=%s email=%s err=%v", provider, email, err)
+		log.Printf("[OAuth Callback] provider=%s: %v", provider, err)
+		reason := "oauth_failed"
+		if errors.Is(err, errUnverifiedEmail) {
+			reason = "email_unverified"
+		}
+		c.Redirect(http.StatusTemporaryRedirect, "/signin?error="+reason)
+		return
+	}
+
+	resp, err := h.authService.CreateOAuthSession(c.Request.Context(), id.email, id.name, id.avatar, provider, c.ClientIP(), c.Request.UserAgent())
+	if err != nil {
+		log.Printf("[OAuth Callback Session Error] provider=%s email=%s err=%v", provider, id.email, err)
 		c.Redirect(http.StatusTemporaryRedirect, "/signin?error=session_creation_failed")
 		return
 	}
 
-	// Set cookie and redirect to root dashboard
+	setOAuthCookie(c, "auth_token", resp.Token, 7*24*3600, "/")
+	c.Redirect(http.StatusTemporaryRedirect, "/")
+}
+
+type oauthIdentity struct {
+	email, name, avatar string
+}
+
+func (h *OAuthHandler) googleIdentity(ctx context.Context, code, redirectURI string) (oauthIdentity, error) {
+	clientID, clientSecret := oauthClient("google")
+	token, err := h.exchangeCode(ctx, h.endpoints.googleToken, url.Values{
+		"code":          {code},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"redirect_uri":  {redirectURI},
+		"grant_type":    {"authorization_code"},
+	})
+	if err != nil {
+		return oauthIdentity{}, err
+	}
+
+	var info struct {
+		Email         string `json:"email"`
+		VerifiedEmail bool   `json:"verified_email"`
+		Name          string `json:"name"`
+		Picture       string `json:"picture"`
+	}
+	if err := h.getJSON(ctx, h.endpoints.googleUserInfo, token, &info); err != nil {
+		return oauthIdentity{}, err
+	}
+	email := strings.TrimSpace(info.Email)
+	if email == "" || !info.VerifiedEmail {
+		return oauthIdentity{}, errUnverifiedEmail
+	}
+	return oauthIdentity{email: email, name: strings.TrimSpace(info.Name), avatar: strings.TrimSpace(info.Picture)}, nil
+}
+
+func (h *OAuthHandler) githubIdentity(ctx context.Context, code, redirectURI string) (oauthIdentity, error) {
+	clientID, clientSecret := oauthClient("github")
+	token, err := h.exchangeCode(ctx, h.endpoints.githubToken, url.Values{
+		"code":          {code},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"redirect_uri":  {redirectURI},
+	})
+	if err != nil {
+		return oauthIdentity{}, err
+	}
+
+	var user struct {
+		Name      string `json:"name"`
+		Login     string `json:"login"`
+		AvatarURL string `json:"avatar_url"`
+	}
+	if err := h.getJSON(ctx, h.endpoints.githubUser, token, &user); err != nil {
+		return oauthIdentity{}, err
+	}
+
+	// The profile email is optional and unverified there, so the account is
+	// matched only on a verified address from /user/emails.
+	var emails []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if err := h.getJSON(ctx, h.endpoints.githubEmail, token, &emails); err != nil {
+		return oauthIdentity{}, err
+	}
+	email := ""
+	for _, e := range emails {
+		if e.Verified && e.Primary {
+			email = e.Email
+			break
+		}
+		if e.Verified && email == "" {
+			email = e.Email
+		}
+	}
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return oauthIdentity{}, errUnverifiedEmail
+	}
+
+	name := strings.TrimSpace(user.Name)
+	if name == "" {
+		name = strings.TrimSpace(user.Login)
+	}
+	return oauthIdentity{email: email, name: name, avatar: strings.TrimSpace(user.AvatarURL)}, nil
+}
+
+// exchangeCode trades an authorization code for an access token. GitHub
+// reports a bad code with 200 and an "error" field, so a missing token is a
+// failure whatever the status.
+func (h *OAuthHandler) exchangeCode(ctx context.Context, tokenURL string, form url.Values) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("token exchange: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var tok struct {
+		AccessToken string `json:"access_token"`
+		Error       string `json:"error"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = json.Unmarshal(body, &tok)
+	if resp.StatusCode != http.StatusOK || tok.AccessToken == "" {
+		return "", fmt.Errorf("token exchange: status %d, error %q", resp.StatusCode, tok.Error)
+	}
+	return tok.AccessToken, nil
+}
+
+func (h *OAuthHandler) getJSON(ctx context.Context, endpoint, token string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", endpoint, resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
+		return fmt.Errorf("GET %s: %w", endpoint, err)
+	}
+	return nil
+}
+
+func oauthClient(provider string) (clientID, clientSecret string) {
+	switch provider {
+	case "google":
+		return os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET")
+	case "github":
+		return os.Getenv("GITHUB_CLIENT_ID"), os.Getenv("GITHUB_CLIENT_SECRET")
+	}
+	return "", ""
+}
+
+func newOAuthState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// consumeOAuthState checks the callback's state against the cookie set when
+// the sign-in started, and clears the cookie so a state works only once.
+func consumeOAuthState(c *gin.Context) bool {
+	cookie, err := c.Cookie(oauthStateCookie)
+	setOAuthCookie(c, oauthStateCookie, "", -1, oauthStatePath)
+	state := c.Query("state")
+	return err == nil && cookie != "" && state != "" &&
+		subtle.ConstantTimeCompare([]byte(cookie), []byte(state)) == 1
+}
+
+// setOAuthCookie sets an HttpOnly, SameSite=Lax cookie. Lax still sends it on
+// the provider's top-level redirect back to the callback.
+func setOAuthCookie(c *gin.Context, name, value string, maxAge int, path string) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	isSecure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetCookie("auth_token", resp.Token, 7*24*3600, "/", "", isSecure, true)
-
-	c.Redirect(http.StatusTemporaryRedirect, "/")
+	c.SetCookie(name, value, maxAge, path, "", isSecure, true)
 }
