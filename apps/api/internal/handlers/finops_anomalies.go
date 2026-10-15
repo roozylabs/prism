@@ -9,6 +9,11 @@ import (
 	"github.com/roozylabs/prism/internal/repository"
 )
 
+// maxFinOpsListLimit caps how many anomalies or alerts one request returns.
+const maxFinOpsListLimit = 200
+
+// FinOpsAnomaliesHandler serves the signed-in user's cost anomalies and
+// budget alerts.
 type FinOpsAnomaliesHandler struct {
 	anomalies *repository.CostAnomalyRepository
 	alerts    *repository.BudgetAlertRepository
@@ -25,8 +30,11 @@ func (h *FinOpsAnomaliesHandler) ListAnomalies(c *gin.Context) {
 			limit = v
 		}
 	}
+	if limit > maxFinOpsListLimit {
+		limit = maxFinOpsListLimit
+	}
 	severity := c.Query("severity")
-	anomalies, err := h.anomalies.List(c.Request.Context(), limit, severity)
+	anomalies, err := h.anomalies.ListForUser(c.Request.Context(), c.GetString("userId"), limit, severity)
 	if err != nil {
 		httputil.RespondInternalError(c, "Failed to fetch anomalies", err, "ANOMALIES_FETCH_FAILED")
 		return
@@ -40,6 +48,9 @@ func (h *FinOpsAnomaliesHandler) ListBudgetAlerts(c *gin.Context) {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
 			limit = v
 		}
+	}
+	if limit > maxFinOpsListLimit {
+		limit = maxFinOpsListLimit
 	}
 	userID := c.GetString("userId")
 	alerts, err := h.alerts.ListUnacknowledged(c.Request.Context(), limit, userID)
@@ -56,8 +67,14 @@ func (h *FinOpsAnomaliesHandler) AcknowledgeAlert(c *gin.Context) {
 		httputil.RespondBadRequest(c, "Alert ID is required", nil, "ALERT_ID_REQUIRED")
 		return
 	}
-	if err := h.alerts.Acknowledge(c.Request.Context(), id); err != nil {
+	found, err := h.alerts.Acknowledge(c.Request.Context(), id, c.GetString("userId"))
+	if err != nil {
 		httputil.RespondInternalError(c, "Failed to acknowledge alert", err, "ALERT_ACKNOWLEDGE_FAILED")
+		return
+	}
+	// Someone else's alert reads as missing, like one that does not exist.
+	if !found {
+		httputil.RespondNotFound(c, "Alert not found", nil, "ALERT_NOT_FOUND")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Alert acknowledged"})

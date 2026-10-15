@@ -5,84 +5,119 @@ import (
 	"encoding/json"
 	"log"
 	"math"
+	"time"
 
+	goredis "github.com/roozylabs/prism/internal/redis"
 	"github.com/roozylabs/prism/internal/repository"
 )
 
-// AnomalyDetector records spikes in platform-wide hourly spend. It does not
-// publish them as dashboard events: the totals cover every tenant, and
-// dashboard streams only carry a single user's own events.
-type AnomalyDetector struct {
-	anomalies *repository.CostAnomalyRepository
+// Each user's spend this hour is compared with their spend in the same hour
+// on previous days, the only baseline that accounts for daily patterns.
+const (
+	anomalyBaselineDays = 14
+	anomalyMinSamples   = 3
+	anomalyWarningZ     = 3
+	anomalyCriticalZ    = 4
+)
+
+type anomalyStore interface {
+	CurrentHourSpend(ctx context.Context) (map[string]float64, time.Time, error)
+	SameHourBaselines(ctx context.Context, windowStart time.Time, days int) (map[string][]float64, error)
+	Create(ctx context.Context, a *repository.CostAnomaly) (bool, error)
 }
 
-func NewAnomalyDetector(anomalies *repository.CostAnomalyRepository) *AnomalyDetector {
-	return &AnomalyDetector{anomalies: anomalies}
+type anomalyPublisher interface {
+	Publish(ctx context.Context, userID, eventType string, data interface{}) error
+}
+
+// AnomalyDetector records spikes in a user's hourly spend and tells that user.
+type AnomalyDetector struct {
+	anomalies anomalyStore
+	publisher anomalyPublisher
+}
+
+func NewAnomalyDetector(anomalies *repository.CostAnomalyRepository, publisher *goredis.EventPublisher) *AnomalyDetector {
+	d := &AnomalyDetector{anomalies: anomalies}
+	if publisher != nil {
+		d.publisher = publisher
+	}
+	return d
 }
 
 func (d *AnomalyDetector) Run(ctx context.Context) {
-	series, err := d.anomalies.GetHourlySpendSeries(ctx, 14)
-	if err != nil {
-		log.Printf("[anomaly] fetch series: %v", err)
-		return
-	}
-	if len(series) < 7 {
-		return
-	}
-
-	currentSpend, windowStart, err := d.anomalies.GetCurrentHourSpend(ctx)
+	current, windowStart, err := d.anomalies.CurrentHourSpend(ctx)
 	if err != nil {
 		log.Printf("[anomaly] fetch current hour: %v", err)
 		return
 	}
-	if currentSpend == 0 {
+	if len(current) == 0 {
+		return
+	}
+	baselines, err := d.anomalies.SameHourBaselines(ctx, windowStart, anomalyBaselineDays)
+	if err != nil {
+		log.Printf("[anomaly] fetch baselines: %v", err)
 		return
 	}
 
-	hour := windowStart.Hour()
-	var historical []float64
-	for _, s := range series {
-		if s.HourOfDay == hour {
-			historical = append(historical, s.TotalUSD)
+	for userID, spend := range current {
+		historical := baselines[userID]
+		severity, mean, stddev, zScore, ok := evaluateHourlySpend(spend, historical)
+		if !ok {
+			continue
+		}
+
+		details, _ := json.Marshal(map[string]interface{}{
+			"hour_of_day": windowStart.Hour(),
+			"days_used":   len(historical),
+		})
+		uid := userID
+		inserted, err := d.anomalies.Create(ctx, &repository.CostAnomaly{
+			UserID:         &uid,
+			WindowStart:    windowStart,
+			Metric:         "hourly_spend",
+			Observed:       spend,
+			BaselineMean:   &mean,
+			BaselineStddev: &stddev,
+			ZScore:         &zScore,
+			Severity:       severity,
+			Details:        details,
+		})
+		if err != nil {
+			log.Printf("[anomaly] create for user %s: %v", userID, err)
+			continue
+		}
+		if inserted && d.publisher != nil {
+			_ = d.publisher.Publish(ctx, userID, "cost_anomaly", map[string]interface{}{
+				"severity":    severity,
+				"observed":    spend,
+				"z_score":     math.Round(zScore*100) / 100,
+				"hour_of_day": windowStart.Hour(),
+			})
 		}
 	}
-	if len(historical) < 3 {
-		return
-	}
+}
 
-	mean, stddev := computeStats(historical)
+// evaluateHourlySpend reports whether spend is an anomaly against historical
+// same-hour spend, and how severe. It needs a few days of history with some
+// variation to judge.
+func evaluateHourlySpend(spend float64, historical []float64) (severity string, mean, stddev, zScore float64, ok bool) {
+	if spend <= 0 || len(historical) < anomalyMinSamples {
+		return "", 0, 0, 0, false
+	}
+	mean, stddev = computeStats(historical)
 	if stddev == 0 {
-		return
+		return "", mean, stddev, 0, false
 	}
-	zScore := (currentSpend - mean) / stddev
-
-	var severity string
-	if zScore >= 4 {
+	zScore = (spend - mean) / stddev
+	switch {
+	case zScore >= anomalyCriticalZ:
 		severity = "critical"
-	} else if zScore >= 3 {
+	case zScore >= anomalyWarningZ:
 		severity = "warning"
-	} else {
-		return
+	default:
+		return "", mean, stddev, zScore, false
 	}
-
-	details, _ := json.Marshal(map[string]interface{}{
-		"hour_of_day": hour,
-		"days_used":   len(historical),
-	})
-
-	anomaly := &repository.CostAnomaly{
-		WindowStart:  windowStart,
-		Metric:       "hourly_spend",
-		Observed:     currentSpend,
-		BaselineMean: &mean,
-		BaselineStddev: &stddev,
-		ZScore:       &zScore,
-		Severity:     severity,
-		Details:      details,
-	}
-	if err := d.anomalies.Create(ctx, anomaly); err != nil {
-		log.Printf("[anomaly] create: %v", err)
-	}
+	return severity, mean, stddev, zScore, true
 }
 
 func computeStats(vals []float64) (mean, stddev float64) {
