@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	redis "github.com/redis/go-redis/v9"
+	"github.com/roozylabs/prism/internal/httputil"
 	goredis "github.com/roozylabs/prism/internal/redis"
 )
 
@@ -37,6 +38,14 @@ func (h *SSEHandler) Shutdown() {
 // @Success      200 {string} string "SSE stream"
 // @Router       /api/sse [get]
 func (h *SSEHandler) Stream(c *gin.Context) {
+	// Each stream carries only its user's events; without a user there is
+	// nothing it may receive.
+	userID := c.GetString("userId")
+	if userID == "" {
+		httputil.RespondUnauthorized(c, "Missing user for event stream", nil, "AUTH_USER_MISSING")
+		return
+	}
+
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache, no-transform")
 	c.Header("Connection", "keep-alive")
@@ -56,7 +65,7 @@ func (h *SSEHandler) Stream(c *gin.Context) {
 	var pubsub *redis.PubSub
 	var ch <-chan *redis.Message
 	if h.publisher != nil {
-		pubsub = h.publisher.Subscribe(c.Request.Context())
+		pubsub = h.publisher.Subscribe(c.Request.Context(), userID)
 		if pubsub != nil {
 			defer func() { _ = pubsub.Close() }()
 			ch = pubsub.Channel()
@@ -82,7 +91,7 @@ func (h *SSEHandler) Stream(c *gin.Context) {
 				}
 				time.Sleep(1 * time.Second)
 				if h.publisher != nil {
-					pubsub = h.publisher.Subscribe(c.Request.Context())
+					pubsub = h.publisher.Subscribe(c.Request.Context(), userID)
 					if pubsub != nil {
 						ch = pubsub.Channel()
 					}

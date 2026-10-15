@@ -217,9 +217,16 @@ func (o *ExecutionOrchestrator) publishEvents(c *gin.Context, ctx context.Contex
 
 	keyPrefix := ""
 	gatewayKeyName := ""
+	ownerID := ""
+	if c != nil {
+		ownerID = c.GetString("userId")
+	}
 	if gatewayKey != nil {
 		keyPrefix = gatewayKey.KeyPrefix
 		gatewayKeyName = gatewayKey.Name
+		if gatewayKey.UserID != "" {
+			ownerID = gatewayKey.UserID
+		}
 	}
 
 	eventData := map[string]interface{}{
@@ -241,7 +248,7 @@ func (o *ExecutionOrchestrator) publishEvents(c *gin.Context, ctx context.Contex
 		"timestamp":      log.CreatedAt,
 	}
 
-	_ = o.eventPublisher.Publish(ctx, "request_log_created", eventData)
+	_ = o.eventPublisher.Publish(ctx, ownerID, "request_log_created", eventData)
 }
 
 func (o *ExecutionOrchestrator) recordDeniedAuditTrail(

@@ -84,7 +84,7 @@ func (q *JobQueue) publishJobEvent(ctx context.Context, job *AsyncJob) {
 		"timestamp": job.UpdatedAt,
 	}
 
-	_ = q.eventPublisher.Publish(ctx, "async_job_updated", eventData)
+	_ = q.eventPublisher.Publish(ctx, job.UserID, "async_job_updated", eventData)
 }
 
 func (q *JobQueue) EnqueueJob(ctx context.Context, job *AsyncJob) error {

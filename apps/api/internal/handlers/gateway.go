@@ -278,7 +278,11 @@ func (h *GatewayHandler) publishEvents(c *gin.Context, requestID string, log *mo
 	if log == nil {
 		return
 	}
-	_ = h.eventPublisher.Publish(c.Request.Context(), "REQUEST_COMPLETED", map[string]interface{}{
+	userID := c.GetString("userId")
+	if key != nil && key.UserID != "" {
+		userID = key.UserID
+	}
+	_ = h.eventPublisher.Publish(c.Request.Context(), userID, "REQUEST_COMPLETED", map[string]interface{}{
 		"requestId":  requestID,
 		"model":      log.Model,
 		"statusCode": log.StatusCode,
@@ -286,7 +290,7 @@ func (h *GatewayHandler) publishEvents(c *gin.Context, requestID string, log *mo
 		"tokens":     log.TotalTokens,
 	})
 
-	_ = h.eventPublisher.Publish(c.Request.Context(), "NEW_REQUEST_LOG", map[string]interface{}{
+	_ = h.eventPublisher.Publish(c.Request.Context(), userID, "NEW_REQUEST_LOG", map[string]interface{}{
 		"requestId":  requestID,
 		"model":      log.Model,
 		"statusCode": log.StatusCode,
@@ -295,7 +299,7 @@ func (h *GatewayHandler) publishEvents(c *gin.Context, requestID string, log *mo
 	})
 
 	if key != nil {
-		_ = h.eventPublisher.Publish(c.Request.Context(), "KEY_USED", map[string]interface{}{
+		_ = h.eventPublisher.Publish(c.Request.Context(), userID, "KEY_USED", map[string]interface{}{
 			"gatewayKeyId": key.ID,
 			"requestCount": key.RequestCount,
 		})

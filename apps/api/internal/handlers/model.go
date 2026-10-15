@@ -181,7 +181,7 @@ func (h *ModelHandler) Delete(c *gin.Context) {
 
 	// 1. Guard against deleting model with active in-flight streams
 	if h.cooldownStore != nil {
-		if summary, err := h.cooldownStore.GetActiveStreams(c.Request.Context()); err == nil {
+		if summary, err := h.cooldownStore.GetActiveStreams(c.Request.Context(), ""); err == nil {
 			count := summary.ByModel[m.Slug] + summary.ByModel[m.Name]
 			if count > 0 {
 				httputil.RespondError(c, http.StatusConflict, fmt.Sprintf("Cannot delete model: it is currently processing %d active live streams", count), nil, "MODEL_IN_USE")

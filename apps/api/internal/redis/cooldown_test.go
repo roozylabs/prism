@@ -74,3 +74,38 @@ func TestCoolingSet_NilAndEmpty(t *testing.T) {
 		t.Errorf("no IDs should return an empty set, got %v, %v", got, err)
 	}
 }
+
+func TestGetActiveStreamsScopedToUser(t *testing.T) {
+	s := newTestCooldownStore(t)
+	ctx := context.Background()
+	suffix := time.Now().Format("150405.000000")
+	alice, bob := "alice-"+suffix, "bob-"+suffix
+	aliceReq, bobReq := "req-a-"+suffix, "req-b-"+suffix
+	t.Cleanup(func() {
+		_ = s.UntrackActiveStream(ctx, aliceReq)
+		_ = s.UntrackActiveStream(ctx, bobReq)
+	})
+
+	if err := s.TrackActiveStream(ctx, aliceReq, alice, "model-a-"+suffix, "key-a", "cred-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TrackActiveStream(ctx, bobReq, bob, "model-b-"+suffix, "key-b", "cred-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	mine, err := s.GetActiveStreams(ctx, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mine.TotalActive != 1 || mine.ByModel["model-a-"+suffix] != 1 || mine.ByModel["model-b-"+suffix] != 0 || mine.ByKey["key-b"] != 0 {
+		t.Fatalf("alice's summary includes other users' streams: %+v", mine)
+	}
+
+	all, err := s.GetActiveStreams(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.ByModel["model-a-"+suffix] != 1 || all.ByModel["model-b-"+suffix] != 1 {
+		t.Fatalf("unscoped summary is missing streams: %+v", all)
+	}
+}

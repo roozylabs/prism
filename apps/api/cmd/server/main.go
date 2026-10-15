@@ -240,7 +240,7 @@ func main() {
 	workerCtx, workerStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer workerStop()
 	workerMgr := workers.NewManager()
-	workerMgr.Register("cost-anomaly", 15*time.Minute, anomalyWorker(anomalyRepo, eventPublisher))
+	workerMgr.Register("cost-anomaly", 15*time.Minute, anomalyWorker(anomalyRepo))
 	workerMgr.Register("budget-alert", 2*time.Minute, budgetAlertWorker(budgetRepo, budgetAlertRepo, eventPublisher))
 	workerMgr.Register("latency-flush", 1*time.Hour, latencyFlushWorker(telemetry, modelRepo, modelLatencyRepo))
 	workerMgr.Register("retention-cleanup", 1*time.Hour, retentionWorker(payloadRepo, toolInvocationRepo))
@@ -555,8 +555,8 @@ func runServer(ctx context.Context, srv *http.Server, timeout time.Duration) err
 	return nil
 }
 
-func anomalyWorker(anomalies *repository.CostAnomalyRepository, publisher *goredis.EventPublisher) func(context.Context) {
-	d := workers.NewAnomalyDetector(anomalies, publisher)
+func anomalyWorker(anomalies *repository.CostAnomalyRepository) func(context.Context) {
+	d := workers.NewAnomalyDetector(anomalies)
 	return d.Run
 }
 

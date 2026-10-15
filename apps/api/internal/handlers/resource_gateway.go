@@ -75,7 +75,7 @@ func (h *ResourceGatewayHandler) ExecuteQuery(c *gin.Context) {
 		{Name: "resource:" + resourceName, Arguments: argsJSON},
 	})
 
-	_ = h.eventPub.Publish(c.Request.Context(), "RESOURCE_EXECUTED", map[string]interface{}{
+	_ = h.eventPub.Publish(c.Request.Context(), gatewayKey.UserID, "RESOURCE_EXECUTED", map[string]interface{}{
 		"executionId": executionID,
 		"resource":    resourceName,
 		"backend":     result.Backend,

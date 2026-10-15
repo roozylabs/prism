@@ -6,17 +6,18 @@ import (
 	"log"
 	"math"
 
-	goredis "github.com/roozylabs/prism/internal/redis"
 	"github.com/roozylabs/prism/internal/repository"
 )
 
+// AnomalyDetector records spikes in platform-wide hourly spend. It does not
+// publish them as dashboard events: the totals cover every tenant, and
+// dashboard streams only carry a single user's own events.
 type AnomalyDetector struct {
 	anomalies *repository.CostAnomalyRepository
-	publisher *goredis.EventPublisher
 }
 
-func NewAnomalyDetector(anomalies *repository.CostAnomalyRepository, publisher *goredis.EventPublisher) *AnomalyDetector {
-	return &AnomalyDetector{anomalies: anomalies, publisher: publisher}
+func NewAnomalyDetector(anomalies *repository.CostAnomalyRepository) *AnomalyDetector {
+	return &AnomalyDetector{anomalies: anomalies}
 }
 
 func (d *AnomalyDetector) Run(ctx context.Context) {
@@ -81,15 +82,7 @@ func (d *AnomalyDetector) Run(ctx context.Context) {
 	}
 	if err := d.anomalies.Create(ctx, anomaly); err != nil {
 		log.Printf("[anomaly] create: %v", err)
-		return
 	}
-
-	_ = d.publisher.Publish(ctx, "cost_anomaly", map[string]interface{}{
-		"severity":    severity,
-		"observed":    currentSpend,
-		"z_score":     math.Round(zScore*100) / 100,
-		"hour_of_day": hour,
-	})
 }
 
 func computeStats(vals []float64) (mean, stddev float64) {
