@@ -97,6 +97,12 @@ var RoleSpecs = []RoleSpec{
 }
 
 func main() {
+	// Every account this creates shares a password published in this
+	// repository, so it must never reach a production database.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		log.Fatal("Refusing to seed the role/plan matrix with APP_ENV=production: its accounts share a published password")
+	}
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://postgres:postgres@localhost:5432/prism?sslmode=disable"
