@@ -55,7 +55,7 @@ func newGoogleCredentialTest(t *testing.T, refreshToken string) (*gin.Engine, *f
 	creds := &fakeCredentials{}
 	h := NewGoogleOAuthHandler(creds, fakeProviders{
 		"mine":     {ID: "mine", UserID: "alice", Type: "google", Enabled: true},
-		"system":   {ID: "system", UserID: systemProviderOwnerID, Type: "google", Enabled: true},
+		"system":   {ID: "system", UserID: "", Type: "google", Enabled: true},
 		"bobs":     {ID: "bobs", UserID: "bob", Type: "google", Enabled: true},
 		"openai":   {ID: "openai", UserID: "alice", Type: "openai", Enabled: true},
 		"disabled": {ID: "disabled", UserID: "alice", Type: "google", Enabled: false},

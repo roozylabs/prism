@@ -153,20 +153,13 @@ func (h *CredentialHandler) Get(c *gin.Context) {
 // @Success      201 {object} models.Credential
 // @Failure      400 {object} map[string]string
 // @Router       /api/providers/{id}/credentials [post]
-// systemProviderOwnerID owns the seeded system providers (migration 008).
-const systemProviderOwnerID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
-
 // providerAcceptsCredentialsFrom reports whether userID may attach a
 // credential to prov: an enabled provider of their own or a shared system one.
 func providerAcceptsCredentialsFrom(prov *models.Provider, userID string) bool {
 	if prov == nil || !prov.Enabled {
 		return false
 	}
-	switch prov.UserID {
-	case userID, "", "user_admin", systemProviderOwnerID:
-		return true
-	}
-	return false
+	return prov.UserID == userID || isSharedProvider(prov)
 }
 
 func (h *CredentialHandler) Create(c *gin.Context) {
