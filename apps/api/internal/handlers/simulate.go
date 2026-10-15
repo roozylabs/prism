@@ -17,6 +17,7 @@ type SimulateHandler struct {
 	creds     *repository.CredentialRepository
 	policies  *repository.RoutingPolicyRepository
 	telemetry *goredis.ModelTelemetryStore
+	health    *proxy.ProviderHealthStore
 }
 
 func NewSimulateHandler(
@@ -25,6 +26,7 @@ func NewSimulateHandler(
 	creds *repository.CredentialRepository,
 	policies *repository.RoutingPolicyRepository,
 	telemetry *goredis.ModelTelemetryStore,
+	health *proxy.ProviderHealthStore,
 ) *SimulateHandler {
 	return &SimulateHandler{
 		models:    models,
@@ -32,6 +34,7 @@ func NewSimulateHandler(
 		creds:     creds,
 		policies:  policies,
 		telemetry: telemetry,
+		health:    health,
 	}
 }
 
@@ -98,40 +101,34 @@ func (h *SimulateHandler) Simulate(c *gin.Context) {
 		promptPreview = promptPreview[:250] + "..."
 	}
 
-	// 2. Load policy or custom weights
-	var policy *proxy.RoutingPolicy
-	policyName := "custom"
-	weights := map[string]float64{
-		"task_match": 0.35,
-		"quality":    0.35,
-		"cost":       0.15,
-		"speed":      0.15,
+	// 2. Load policy or custom weights. Without an explicit policy or custom
+	// weights, resolve it the way the live router does: the user's default
+	// policy, then their "balanced" policy, then the built-in default.
+	policy := proxy.DefaultRoutingPolicy()
+	applyDBPolicy := func(dbPolicy *models.RoutingPolicy) {
+		policy.Name = dbPolicy.Name
+		if len(dbPolicy.Weights) > 0 {
+			policy.Weights = dbPolicy.Weights
+		}
+		policy.Constraints = dbPolicy.Constraints
 	}
 
+	ctx := c.Request.Context()
 	if req.PolicyID != "" {
-		if dbPolicy, err := h.policies.FindByID(c.Request.Context(), req.PolicyID, userID); err == nil && dbPolicy != nil {
-			policyName = dbPolicy.Name
-			if len(dbPolicy.Weights) > 0 {
-				weights = dbPolicy.Weights
-			}
+		if dbPolicy, err := h.policies.FindByID(ctx, req.PolicyID, userID); err == nil && dbPolicy != nil {
+			applyDBPolicy(dbPolicy)
 		}
 	} else if len(req.CustomWeights) > 0 {
-		weights = req.CustomWeights
-	} else {
-		// Use default active policy if available
-		if dbPolicy, err := h.policies.FindByDefault(c.Request.Context(), userID); err == nil && dbPolicy != nil {
-			policyName = dbPolicy.Name
-			if len(dbPolicy.Weights) > 0 {
-				weights = dbPolicy.Weights
-			}
-		}
+		policy.Name = "custom"
+		policy.Weights = req.CustomWeights
+		policy.Constraints = map[string]float64{}
+	} else if dbPolicy, err := h.policies.FindByDefault(ctx, userID); err == nil && dbPolicy != nil {
+		applyDBPolicy(dbPolicy)
+	} else if dbPolicy, err := h.policies.FindByName(ctx, "balanced", userID); err == nil && dbPolicy != nil {
+		applyDBPolicy(dbPolicy)
 	}
-
-	policy = &proxy.RoutingPolicy{
-		Name:        policyName,
-		Weights:     weights,
-		Constraints: map[string]float64{},
-	}
+	policyName := policy.Name
+	weights := policy.Weights
 
 	// 3. Load all enabled models
 	allModels, err := h.models.ListEnabled(c.Request.Context())
@@ -147,13 +144,14 @@ func (h *SimulateHandler) Simulate(c *gin.Context) {
 		providerMap[p.ID] = p.Name
 	}
 
-	// Load active provider IDs with credentials
-	activeProviderIDs, _ := h.creds.ListActiveProviderIDs(c.Request.Context())
+	// Load active provider IDs with credentials owned by this tenant; like the
+	// live router, providers without active credentials are not candidates.
+	activeProviderIDs, _ := h.creds.ListActiveProviderIDs(c.Request.Context(), userID)
 
 	// Filter candidate models
 	var candidates []*models.Model
 	for _, m := range allModels {
-		if len(activeProviderIDs) > 0 && !activeProviderIDs[m.ProviderID] {
+		if !activeProviderIDs[m.ProviderID] {
 			continue
 		}
 		if req.ProviderID != "" && m.ProviderID != req.ProviderID {
@@ -172,7 +170,12 @@ func (h *SimulateHandler) Simulate(c *gin.Context) {
 		telemetryMap, _ = h.telemetry.GetMultipleModelMetrics(c.Request.Context(), candidateSlugs)
 	}
 
-	scores := proxy.ScoreCandidatesWithBudgetAndTelemetry(candidates, chars, policy, req.BudgetStatus, telemetryMap, nil)
+	var healthScores map[string]float64
+	if h.health != nil {
+		healthScores = h.health.Scores(c.Request.Context())
+	}
+
+	scores := proxy.ScoreCandidatesWithBudgetAndTelemetry(candidates, chars, policy, req.BudgetStatus, telemetryMap, healthScores)
 
 	var scoreDetails []ModelScoreDetail
 	selectedModel := ""

@@ -344,6 +344,17 @@ func TestScoreCandidatesWithBudget_MissingHealthDefaultsToHealthy(t *testing.T) 
 	}
 }
 
+func TestDefaultRoutingPolicy_ReturnsFreshCopy(t *testing.T) {
+	p := DefaultRoutingPolicy()
+	p.Weights["cost"] = 1
+	p.Constraints["max_cost_per_request"] = 99
+
+	fresh := DefaultRoutingPolicy()
+	if fresh.Weights["cost"] != 0.15 || fresh.Constraints["max_cost_per_request"] != 0.05 {
+		t.Errorf("default policy was mutated through a previous copy: %+v", fresh)
+	}
+}
+
 func balancedPolicy() *RoutingPolicy {
 	return &RoutingPolicy{
 		Name:        "balanced",
