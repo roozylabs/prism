@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/roozylabs/prism/internal/models"
-	"github.com/roozylabs/prism/internal/repository"
 )
 
 type AdmissionDecision string
@@ -44,14 +43,14 @@ type AdmissionRequest struct {
 type AdmissionController struct {
 	rbacEngine      *RBACEngine
 	agentGovernance *AgentGovernanceEngine
-	quotaRepo       *repository.QuotaRepository
+	quotaRepo       QuotaEvaluator
 	budgetManager   *BudgetManager
 }
 
 func NewAdmissionController(
 	rbacEngine *RBACEngine,
 	agentGovernance *AgentGovernanceEngine,
-	quotaRepo *repository.QuotaRepository,
+	quotaRepo QuotaEvaluator,
 	budgetManager *BudgetManager,
 ) *AdmissionController {
 	return &AdmissionController{

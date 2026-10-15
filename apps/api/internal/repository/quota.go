@@ -125,23 +125,17 @@ func (r *QuotaRepository) EvaluateQuota(ctx context.Context, targetType, targetI
 		return &models.QuotaCheckResult{Allowed: true}, nil
 	}
 
-	// Calculate current month and day spend from request_logs for the specific target organization
+	// Current month and day spend for the organization in one pass, served by
+	// idx_request_logs_org_created (org_id, created_at) INCLUDE (cost_usd).
 	var monthlySpent, dailySpent float64
-	queryMonthly := `
-		SELECT COALESCE(SUM(cost_usd), 0.0)
+	query := `
+		SELECT COALESCE(SUM(cost_usd), 0.0),
+		       COALESCE(SUM(cost_usd) FILTER (WHERE created_at >= date_trunc('day', NOW())), 0.0)
 		FROM request_logs
-		WHERE created_at >= date_trunc('month', NOW())
-		  AND org_id = $1
+		WHERE org_id = $1
+		  AND created_at >= date_trunc('month', NOW())
 	`
-	_ = r.db.QueryRowContext(ctx, queryMonthly, targetID).Scan(&monthlySpent)
-
-	queryDaily := `
-		SELECT COALESCE(SUM(cost_usd), 0.0)
-		FROM request_logs
-		WHERE created_at >= date_trunc('day', NOW())
-		  AND org_id = $1
-	`
-	_ = r.db.QueryRowContext(ctx, queryDaily, targetID).Scan(&dailySpent)
+	_ = r.db.QueryRowContext(ctx, query, targetID).Scan(&monthlySpent, &dailySpent)
 
 	res := &models.QuotaCheckResult{
 		Allowed:         true,
