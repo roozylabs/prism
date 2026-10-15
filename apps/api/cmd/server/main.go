@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -508,10 +510,49 @@ func main() {
 		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
+	srv := &http.Server{
+		Addr:              ":" + cfg.ServerPort,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	srv.RegisterOnShutdown(sseHandler.Shutdown)
+
+	shutdownSignal, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignal()
+
 	log.Printf("Server starting on port %s", cfg.ServerPort)
-	if err := r.Run(":" + cfg.ServerPort); err != nil {
+	if err := runServer(shutdownSignal, srv, time.Duration(cfg.ShutdownTimeoutSeconds)*time.Second); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
+	log.Println("HTTP server stopped")
+}
+
+// runServer serves until ctx is done, then stops accepting connections and
+// lets in-flight requests (including LLM streams) finish for up to timeout
+// before closing whatever is still open. It returns once the server has
+// stopped, so the caller's deferred cleanup (post-processor flush, DB close)
+// runs after the last request. It returns an error only if serving fails.
+func runServer(ctx context.Context, srv *http.Server, timeout time.Duration) error {
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+	}
+
+	log.Printf("Shutdown signal received; draining in-flight requests for up to %s", timeout)
+	drainCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := srv.Shutdown(drainCtx); err != nil {
+		log.Printf("Drain timed out (%v); closing remaining connections", err)
+		_ = srv.Close()
+	}
+	return nil
 }
 
 func anomalyWorker(anomalies *repository.CostAnomalyRepository, publisher *goredis.EventPublisher) func(context.Context) {

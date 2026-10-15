@@ -13,6 +13,7 @@ The root `.env.example` file defines configuration parameters classified into 6 
 |----------------------|----------|-------------------|---------|-------------------------|-------------------|
 | `APP_ENV` | Environment | **Required** | No | `production` | Fallbacks to dev defaults. |
 | `SERVER_PORT` | Network | Optional | No | `8080` | Listens on port 8080. |
+| `SHUTDOWN_TIMEOUT_SECONDS` | Network | Optional | No | `30` | On SIGTERM the API stops accepting connections and waits this long for in-flight requests and LLM streams before closing them. Keep it below the container `stop_grace_period` (45s in `docker-compose.yml`). |
 | `APP_PORT` | Network | Optional | No | `3000` | Listens on port 3000. |
 | `POSTGRES_DB` | Database | **Required** | No | `prism` | Database connection fails. |
 | `POSTGRES_USER` | Database | **Required** | No | `postgres` | Database authentication fails. |

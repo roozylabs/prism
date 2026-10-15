@@ -7,13 +7,16 @@ services:
       dockerfile: Dockerfile
     container_name: prism-api
     restart: unless-stopped
+    # Longer than SHUTDOWN_TIMEOUT_SECONDS so in-flight LLM streams can drain
+    # before Docker sends SIGKILL (default grace period is 10s).
+    stop_grace_period: 45s
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
       HASH_KEY: ${HASH_KEY:-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -50,13 +53,16 @@ services:
       dockerfile: Dockerfile
     container_name: prism-api-green
     restart: unless-stopped
+    # Longer than SHUTDOWN_TIMEOUT_SECONDS so in-flight LLM streams can drain
+    # before Docker sends SIGKILL (default grace period is 10s).
+    stop_grace_period: 45s
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
       HASH_KEY: ${HASH_KEY:-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}

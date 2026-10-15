@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,10 +13,20 @@ import (
 
 type SSEHandler struct {
 	publisher *goredis.EventPublisher
+	closing   chan struct{}
+	closeOnce sync.Once
 }
 
 func NewSSEHandler(publisher *goredis.EventPublisher) *SSEHandler {
-	return &SSEHandler{publisher: publisher}
+	return &SSEHandler{publisher: publisher, closing: make(chan struct{})}
+}
+
+// Shutdown ends every open event stream. Streams never finish on their own,
+// so the server calls this when it starts shutting down; otherwise a graceful
+// shutdown would wait on dashboard tabs until it times out. Browsers'
+// EventSource reconnects to the new instance.
+func (h *SSEHandler) Shutdown() {
+	h.closeOnce.Do(func() { close(h.closing) })
 }
 
 // Stream godoc
@@ -55,6 +66,8 @@ func (h *SSEHandler) Stream(c *gin.Context) {
 	for {
 		select {
 		case <-c.Request.Context().Done():
+			return
+		case <-h.closing:
 			return
 		case <-ticker.C:
 			if _, err := fmt.Fprint(c.Writer, ": ping\nevent: ping\ndata: {\"status\":\"ok\"}\n\n"); err != nil {
