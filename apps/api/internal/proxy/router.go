@@ -261,10 +261,12 @@ func (r *Router) selectByStrategy(ctx context.Context, providerID, strategy stri
 		return nil, err
 	}
 
-	// Filter out explicitly disabled or exhausted credentials
+	// Filter out disabled credentials. Exhausted ones are not filtered here:
+	// exhaustion always sets a cooldown that lasts until the quota resets, so
+	// they are skipped while cooling and tried again once it expires.
 	var healthyCreds []models.Credential
 	for _, c := range rawCreds {
-		if c.Status == models.CredentialStatusDisabled || c.Status == models.CredentialStatusExhausted {
+		if c.Status == models.CredentialStatusDisabled {
 			continue
 		}
 		healthyCreds = append(healthyCreds, c)
