@@ -3,12 +3,15 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"time"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/roozylabs/prism/internal/models"
 )
 
+// Settings are platform defaults (org_id NULL) that each organization can
+// override with its own rows. Only operators change platform defaults; the
+// API writes an organization's overrides.
 type SettingRepository struct {
 	db *sql.DB
 }
@@ -17,69 +20,56 @@ func NewSettingRepository(db *sql.DB) *SettingRepository {
 	return &SettingRepository{db: db}
 }
 
+// Get returns the platform default for key.
 func (r *SettingRepository) Get(ctx context.Context, key string) (string, error) {
 	var value string
-	err := r.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = $1`, key).Scan(&value)
+	err := r.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = $1 AND org_id IS NULL`, key).Scan(&value)
 	if err != nil {
 		return "", err
 	}
 	return value, nil
 }
 
-func (r *SettingRepository) Set(ctx context.Context, key, value, category string) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO settings (id, key, value, category, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, NOW(), NOW())
-		 ON CONFLICT (key) DO UPDATE SET value = $3, updated_at = NOW()`,
-		uuid.New().String(), key, value, category,
-	)
-	return err
-}
-
-func (r *SettingRepository) List(ctx context.Context) ([]models.Setting, error) {
+// ListForOrg returns the settings in effect for orgID: its overrides, plus
+// the platform defaults it has not overridden.
+func (r *SettingRepository) ListForOrg(ctx context.Context, orgID string) ([]models.Setting, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, key, value, category, created_at, updated_at FROM settings ORDER BY category, key`)
+		`SELECT DISTINCT ON (key) id, key, value, category, created_at, updated_at, org_id IS NOT NULL
+		 FROM settings
+		 WHERE org_id = $1 OR org_id IS NULL
+		 ORDER BY key, org_id IS NULL`, orgID)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	var settings []models.Setting
+	settings := []models.Setting{}
 	for rows.Next() {
 		var s models.Setting
-		if err := rows.Scan(&s.ID, &s.Key, &s.Value, &s.Category, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		var own bool
+		if err := rows.Scan(&s.ID, &s.Key, &s.Value, &s.Category, &s.CreatedAt, &s.UpdatedAt, &own); err != nil {
 			return nil, err
+		}
+		s.Scope = "platform"
+		if own {
+			s.Scope = "organization"
 		}
 		settings = append(settings, s)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return settings, nil
-}
-
-func (r *SettingRepository) GetAll(ctx context.Context) (map[string]string, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT key, value FROM settings`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	settings := make(map[string]string)
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			return nil, err
+	sort.SliceStable(settings, func(i, j int) bool {
+		if settings[i].Category != settings[j].Category {
+			return settings[i].Category < settings[j].Category
 		}
-		settings[key] = value
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+		return settings[i].Key < settings[j].Key
+	})
 	return settings, nil
 }
 
-func (r *SettingRepository) SetMultiple(ctx context.Context, settings map[string]string) error {
+// SetForOrg stores orgID's overrides. Platform defaults are never touched.
+func (r *SettingRepository) SetForOrg(ctx context.Context, orgID string, settings map[string]string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -87,17 +77,18 @@ func (r *SettingRepository) SetMultiple(ctx context.Context, settings map[string
 	defer func() { _ = tx.Rollback() }()
 
 	for key, value := range settings {
-		now := time.Now()
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO settings (id, key, value, category, created_at, updated_at)
-			 VALUES ($1, $2, $3, 'general', $4, $4)
-			 ON CONFLICT (key) DO UPDATE SET value = $3, updated_at = $4`,
-			uuid.New().String(), key, value, now,
+			`INSERT INTO settings (id, org_id, key, value, category, created_at, updated_at)
+			 VALUES ($1, $2, $3::varchar, $4,
+			         COALESCE((SELECT category FROM settings WHERE key = $3::varchar AND org_id IS NULL), 'general'),
+			         NOW(), NOW())
+			 ON CONFLICT (org_id, key) WHERE org_id IS NOT NULL
+			 DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+			uuid.New().String(), orgID, key, value,
 		)
 		if err != nil {
 			return err
 		}
 	}
-
 	return tx.Commit()
 }
