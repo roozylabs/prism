@@ -9,7 +9,22 @@ on:
       - '.dockerignore'
       - '.env.example'
       - '.github/workflows/api-ci-cd.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'apps/api/**'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - '.env.example'
+      - '.github/workflows/api-ci-cd.yml'
   workflow_dispatch:
+
+# Pull requests run lint, tests and builds only; image push and deploy are
+# limited to pushes to main by the jobs' `if` conditions. A newer commit on the
+# same PR cancels the older run; runs on main never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
