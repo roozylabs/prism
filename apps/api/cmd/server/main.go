@@ -277,8 +277,6 @@ func main() {
 		api.GET("/auth/google/callback", oauthHandler.GoogleCallback)
 		api.GET("/auth/github/login", oauthHandler.GitHubLogin)
 		api.GET("/auth/github/callback", oauthHandler.GitHubCallback)
-		api.GET("/providers/google/oauth/login", googleOAuthHandler.Login)
-		api.GET("/providers/google/oauth/callback", googleOAuthHandler.Callback)
 
 		// Protected User-Scoped API routes (Session auth required, no active tenant required)
 		userProtected := api.Group("")
@@ -320,6 +318,10 @@ func main() {
 			protected.GET("/credentials", requirePermission("credential:read"), credentialHandler.List)
 			protected.GET("/providers/:id/credentials", requirePermission("credential:read"), credentialHandler.List)
 			protected.POST("/providers/:id/credentials", requirePermission("credential:create"), credentialHandler.Create)
+			// Connecting a Google account opens these in a popup; the session
+			// cookie authenticates both, so the credential gets an owner.
+			protected.GET("/providers/google/oauth/login", requirePermission("credential:create"), googleOAuthHandler.Login)
+			protected.GET("/providers/google/oauth/callback", requirePermission("credential:create"), googleOAuthHandler.Callback)
 			protected.GET("/providers/:id/credentials/:credId", requirePermission("credential:read"), credentialHandler.Get)
 			protected.PUT("/providers/:id/credentials/:credId", requirePermission("credential:update"), credentialHandler.Update)
 			protected.DELETE("/providers/:id/credentials/:credId", requirePermission("credential:delete"), credentialHandler.Delete)

@@ -1,34 +1,62 @@
 package handlers
 
 import (
+	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/roozylabs/prism/internal/httputil"
 	"github.com/roozylabs/prism/internal/models"
-	"github.com/roozylabs/prism/internal/repository"
 	"github.com/roozylabs/prism/internal/utils"
 )
 
-type GoogleOAuthHandler struct {
-	credentials *repository.CredentialRepository
-	providers   *repository.ProviderRepository
-	encKey      string
+// Connecting a Google account as a Gemini credential. Both routes require a
+// signed-in user; the state cookie ties the callback to the browser and the
+// provider that started it.
+const (
+	credentialOAuthStateCookie = "gcp_oauth_state"
+	credentialOAuthStatePath   = "/api/providers/google/oauth"
+	credentialOAuthCallback    = "/api/providers/google/oauth/callback"
+)
+
+type credentialProviderFinder interface {
+	FindByID(ctx context.Context, id string) (*models.Provider, error)
 }
 
-func NewGoogleOAuthHandler(credentials *repository.CredentialRepository, providers *repository.ProviderRepository, encKey string) *GoogleOAuthHandler {
+type credentialCreator interface {
+	Create(ctx context.Context, c *models.Credential) error
+}
+
+type GoogleOAuthHandler struct {
+	credentials credentialCreator
+	providers   credentialProviderFinder
+	encKey      string
+	client      *http.Client
+	// tokenURL and userInfoURL are Google's endpoints; tests replace them.
+	tokenURL    string
+	userInfoURL string
+	authURL     string
+}
+
+func NewGoogleOAuthHandler(credentials credentialCreator, providers credentialProviderFinder, encKey string) *GoogleOAuthHandler {
 	return &GoogleOAuthHandler{
 		credentials: credentials,
 		providers:   providers,
 		encKey:      encKey,
+		client:      &http.Client{Timeout: 15 * time.Second},
+		tokenURL:    defaultOAuthEndpoints.googleToken,
+		userInfoURL: defaultOAuthEndpoints.googleUserInfo,
+		authURL:     defaultOAuthEndpoints.googleAuth,
 	}
 }
 
@@ -57,117 +85,128 @@ func (h *GoogleOAuthHandler) getOAuthEnv(c *gin.Context) (clientID, clientSecret
 	if baseURL == "" {
 		baseURL = "http://localhost:3000"
 	}
-	redirectURI = strings.TrimRight(baseURL, "/") + "/api/auth/google/callback"
+	// This flow has its own callback. The sign-in callback would treat the
+	// code as a sign-in and never store the credential.
+	redirectURI = strings.TrimRight(baseURL, "/") + credentialOAuthCallback
 	return clientID, clientSecret, redirectURI
+}
+
+// googleProviderDenial says why the signed-in user may not attach a Gemini
+// credential to providerID, in words the popup can show, or "" if they may.
+func (h *GoogleOAuthHandler) googleProviderDenial(ctx context.Context, providerID, userID string) string {
+	if userID == "" {
+		return "Sign in to connect a Google account."
+	}
+	prov, err := h.providers.FindByID(ctx, providerID)
+	if err != nil || !providerAcceptsCredentialsFrom(prov, userID) {
+		return "You cannot add credentials to this provider."
+	}
+	if prov.Type != "google" {
+		return "Google accounts can only be connected to a Google provider."
+	}
+	return ""
 }
 
 func (h *GoogleOAuthHandler) Login(c *gin.Context) {
 	providerID := c.Query("provider_id")
 	if providerID == "" {
-		c.Redirect(http.StatusTemporaryRedirect, "/api/auth/oauth/google")
+		renderPopupResult(c, false, "", "provider_id is required")
+		return
+	}
+	if denial := h.googleProviderDenial(c.Request.Context(), providerID, c.GetString("userId")); denial != "" {
+		renderPopupResult(c, false, "", denial)
 		return
 	}
 
 	clientID, _, redirectURI := h.getOAuthEnv(c)
 	if clientID == "" {
-		httputil.RespondInternalError(c, "GOOGLE_CLIENT_ID is not configured in environment", nil, "GOOGLE_CLIENT_ID_MISSING")
+		renderPopupResult(c, false, "", "Google sign-in is not configured on this server")
 		return
 	}
 
-	state := providerID
-	scopes := "https://www.googleapis.com/auth/generative-language openid email profile"
+	nonce, err := newOAuthState()
+	if err != nil {
+		renderPopupResult(c, false, "", "Could not start the Google sign-in")
+		return
+	}
+	// The provider rides in the state, which the callback trusts only after
+	// matching it against this cookie.
+	state := nonce + "." + providerID
+	setOAuthCookie(c, credentialOAuthStateCookie, state, int(oauthStateTTL.Seconds()), credentialOAuthStatePath)
 
+	scopes := "https://www.googleapis.com/auth/generative-language openid email profile"
 	authURL := fmt.Sprintf(
-		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=offline&prompt=consent&state=%s",
+		"%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=offline&prompt=consent&state=%s",
+		h.authURL,
 		url.QueryEscape(clientID),
 		url.QueryEscape(redirectURI),
 		strings.ReplaceAll(url.QueryEscape(scopes), "+", "%20"),
 		url.QueryEscape(state),
 	)
-
 	c.Redirect(http.StatusTemporaryRedirect, authURL)
 }
 
 func (h *GoogleOAuthHandler) Callback(c *gin.Context) {
-	code := c.Query("code")
-	providerID := c.Query("state")
-	errQuery := c.Query("error")
+	cookie, cookieErr := c.Cookie(credentialOAuthStateCookie)
+	setOAuthCookie(c, credentialOAuthStateCookie, "", -1, credentialOAuthStatePath)
+	state := c.Query("state")
+	if cookieErr != nil || cookie == "" || state == "" || subtle.ConstantTimeCompare([]byte(cookie), []byte(state)) != 1 {
+		renderPopupResult(c, false, "", "This connection was not started here or has expired. Start it again from Credentials.")
+		return
+	}
+	_, providerID, _ := strings.Cut(state, ".")
 
-	if errQuery != "" {
+	if errQuery := c.Query("error"); errQuery != "" {
 		renderPopupResult(c, false, "", "Google OAuth Error: "+errQuery)
 		return
 	}
-
+	code := c.Query("code")
 	if code == "" || providerID == "" {
 		renderPopupResult(c, false, "", "Invalid OAuth callback code or state")
 		return
 	}
 
+	// Check again: access may have changed while the user was at Google.
+	userID := c.GetString("userId")
+	if denial := h.googleProviderDenial(c.Request.Context(), providerID, userID); denial != "" {
+		renderPopupResult(c, false, "", denial)
+		return
+	}
+
 	clientID, clientSecret, redirectURI := h.getOAuthEnv(c)
-
-	// 1. Exchange code for tokens
-	form := url.Values{}
-	form.Set("code", code)
-	form.Set("client_id", clientID)
-	form.Set("client_secret", clientSecret)
-	form.Set("redirect_uri", redirectURI)
-	form.Set("grant_type", "authorization_code")
-
-	resp, err := http.PostForm("https://oauth2.googleapis.com/token", form)
+	tokenData, err := h.exchangeCode(c.Request.Context(), url.Values{
+		"code":          {code},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"redirect_uri":  {redirectURI},
+		"grant_type":    {"authorization_code"},
+	})
 	if err != nil {
-		renderPopupResult(c, false, "", "Token exchange request failed: "+err.Error())
+		log.Printf("[Google credential OAuth] token exchange: %v", err)
+		renderPopupResult(c, false, "", "Google did not accept the authorization. Try connecting again.")
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		renderPopupResult(c, false, "", "Token exchange failed: "+string(bodyBytes))
-		return
-	}
-
-	var tokenData struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-	}
-	if err := json.Unmarshal(bodyBytes, &tokenData); err != nil {
-		renderPopupResult(c, false, "", "Failed to parse token response")
+	if tokenData.RefreshToken == "" {
+		renderPopupResult(c, false, "", "Google returned no refresh token, so the credential could not be saved. Try connecting again.")
 		return
 	}
 
-	// 2. Fetch User Profile Email from Google
-	req, _ := http.NewRequest("GET", "https://www.googleapis.com/oauth2/v2/userinfo", nil)
-	req.Header.Set("Authorization", "Bearer "+tokenData.AccessToken)
-	userResp, err := http.DefaultClient.Do(req)
-	var userEmail string
-	if err == nil && userResp.StatusCode == http.StatusOK {
-		var userInfo struct {
-			Email string `json:"email"`
-		}
-		_ = json.NewDecoder(userResp.Body).Decode(&userInfo)
-		userEmail = userInfo.Email
-		_ = userResp.Body.Close()
-	}
-
+	userEmail := h.fetchEmail(c.Request.Context(), tokenData.AccessToken)
 	credName := "Gemini Account"
 	if userEmail != "" {
 		credName = fmt.Sprintf("Gemini (%s)", userEmail)
 	}
 
-	// 3. Encrypt OAuth metadata
-	metaMap := map[string]string{
+	metaBytes, _ := json.Marshal(map[string]string{
 		"client_id":     clientID,
 		"client_secret": clientSecret,
 		"refresh_token": tokenData.RefreshToken,
-	}
-	metaBytes, _ := json.Marshal(metaMap)
+	})
 	encMeta, err := utils.EncryptAES256GCM(string(metaBytes), h.encKey)
 	if err != nil {
 		renderPopupResult(c, false, "", "Failed to encrypt OAuth metadata")
 		return
 	}
-
 	encKeyPlaceholder, _ := utils.EncryptAES256GCM("oauth_token", h.encKey)
 
 	keyPrefix := clientID
@@ -179,9 +218,9 @@ func (h *GoogleOAuthHandler) Callback(c *gin.Context) {
 		maskedKey = "gcp_oauth_key"
 	}
 
-	// 4. Save Credential
 	cred := &models.Credential{
 		ProviderID:        providerID,
+		UserID:            &userID,
 		Name:              credName,
 		EncryptedKey:      encKeyPlaceholder,
 		KeyPrefix:         keyPrefix,
@@ -192,13 +231,67 @@ func (h *GoogleOAuthHandler) Callback(c *gin.Context) {
 		Enabled:           true,
 		Status:            models.CredentialStatusActive,
 	}
+	if orgID := c.GetString("organization_id"); orgID != "" {
+		cred.OrgID = &orgID
+	}
 
 	if err := h.credentials.Create(c.Request.Context(), cred); err != nil {
-		renderPopupResult(c, false, "", "Failed to save credential to database: "+err.Error())
+		log.Printf("[Google credential OAuth] save credential: %v", err)
+		renderPopupResult(c, false, "", "Failed to save the credential")
 		return
 	}
 
 	renderPopupResult(c, true, userEmail, "")
+}
+
+type googleTokens struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+func (h *GoogleOAuthHandler) exchangeCode(ctx context.Context, form url.Values) (googleTokens, error) {
+	var tok googleTokens
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return tok, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return tok, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return tok, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	if err := json.Unmarshal(body, &tok); err != nil || tok.AccessToken == "" {
+		return tok, fmt.Errorf("no access token in response")
+	}
+	return tok, nil
+}
+
+// fetchEmail names the credential after the Google account; it is optional.
+func (h *GoogleOAuthHandler) fetchEmail(ctx context.Context, accessToken string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.userInfoURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var info struct {
+		Email string `json:"email"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&info)
+	return info.Email
 }
 
 // renderPopupResult reports the result to the opener window. email and errMsg

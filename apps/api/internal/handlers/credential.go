@@ -153,6 +153,22 @@ func (h *CredentialHandler) Get(c *gin.Context) {
 // @Success      201 {object} models.Credential
 // @Failure      400 {object} map[string]string
 // @Router       /api/providers/{id}/credentials [post]
+// systemProviderOwnerID owns the seeded system providers (migration 008).
+const systemProviderOwnerID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+
+// providerAcceptsCredentialsFrom reports whether userID may attach a
+// credential to prov: an enabled provider of their own or a shared system one.
+func providerAcceptsCredentialsFrom(prov *models.Provider, userID string) bool {
+	if prov == nil || !prov.Enabled {
+		return false
+	}
+	switch prov.UserID {
+	case userID, "", "user_admin", systemProviderOwnerID:
+		return true
+	}
+	return false
+}
+
 func (h *CredentialHandler) Create(c *gin.Context) {
 	providerID := c.Param("id")
 	userID := c.GetString("userId")
@@ -162,7 +178,7 @@ func (h *CredentialHandler) Create(c *gin.Context) {
 
 	if h.providers != nil && userID != "" && userID != "user_admin" {
 		prov, err := h.providers.FindByID(c.Request.Context(), providerID)
-		if err != nil || (!prov.Enabled || (prov.UserID != userID && prov.UserID != "user_admin" && prov.UserID != "" && prov.UserID != "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")) {
+		if err != nil || !providerAcceptsCredentialsFrom(prov, userID) {
 			httputil.RespondForbidden(c, "Cannot attach credentials to a provider you do not own or is disabled", err, "PROVIDER_ACCESS_DENIED")
 			return
 		}
