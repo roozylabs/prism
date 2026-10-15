@@ -35,6 +35,16 @@ func (f *fakeJobStore) GetJob(_ context.Context, jobID string) (*queue.AsyncJob,
 	return job, nil
 }
 
+// jobRoles maps "orgID/userID" to the member's role; missing entries are non-members.
+type jobRoles map[string]string
+
+func (r jobRoles) GetOrganizationMemberRole(_ context.Context, orgID, userID string) (string, error) {
+	if role, ok := r[orgID+"/"+userID]; ok {
+		return role, nil
+	}
+	return "", errors.New("not a member")
+}
+
 func newJobTestHandler() *GatewayHandler {
 	store := &fakeJobStore{jobs: map[string]*queue.AsyncJob{
 		"job_alice": {
@@ -116,7 +126,11 @@ func TestGetJobStatus_Ownership(t *testing.T) {
 func TestAsyncChatCompletions_JobIDIgnoresRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := &fakeJobStore{jobs: map[string]*queue.AsyncJob{}}
-	h := &GatewayHandler{jobQueue: store}
+	// The governance role comes from org membership; a key owner without one is rejected.
+	h := &GatewayHandler{
+		jobQueue:     store,
+		roleResolver: jobRoles{"org_a/user_alice": "developer"},
+	}
 
 	r := gin.New()
 	r.POST("/chat/completions/async", gatewayAuth("user_alice", "org_a"), h.AsyncChatCompletions)
@@ -139,4 +153,22 @@ func TestAsyncChatCompletions_JobIDIgnoresRequestID(t *testing.T) {
 		assert.Equal(t, "user_alice", store.jobs[jobID].UserID)
 	}
 	assert.Len(t, ids, 2, "same X-Request-ID must not yield the same job ID")
+}
+
+func TestAsyncChatCompletions_NonMemberRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &fakeJobStore{jobs: map[string]*queue.AsyncJob{}}
+	h := &GatewayHandler{jobQueue: store, roleResolver: jobRoles{}}
+
+	r := gin.New()
+	r.POST("/chat/completions/async", gatewayAuth("user_mallory", "org_a"), h.AsyncChatCompletions)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/chat/completions/async",
+		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Empty(t, store.jobs, "no job may be enqueued for a key owner without a role")
 }
