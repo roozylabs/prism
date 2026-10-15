@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"github.com/roozylabs/prism/internal/repository"
 	"testing"
 	"time"
 )
@@ -63,10 +64,17 @@ func TestComputeHealthScore_ClampedToZeroOne(t *testing.T) {
 	}
 }
 
+// newTestHealthStore builds a store whose fetch returns global scores only.
 func newTestHealthStore(ttl time.Duration, fetch func(ctx context.Context) (map[string]float64, error)) *ProviderHealthStore {
 	return &ProviderHealthStore{
-		ttl:   ttl,
-		fetch: fetch,
+		ttl: ttl,
+		fetch: func(ctx context.Context) (*providerHealthSnapshot, error) {
+			global, err := fetch(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &providerHealthSnapshot{global: global}, nil
+		},
 	}
 }
 
@@ -147,5 +155,68 @@ func TestHealthStore_ConcurrentScoresSafe(t *testing.T) {
 	}
 	for i := 0; i < 16; i++ {
 		<-done
+	}
+}
+
+func TestBuildHealthSnapshot_TenantCredentialErrorsStayTenantLocal(t *testing.T) {
+	// org_a's own key is invalid: every request gets a 401 (a 4xx, so its
+	// provider-side success rate is still 1.0). org_b works fine.
+	snap := buildHealthSnapshot([]repository.ProviderHealthStats{
+		{OrgID: "org_a", ProviderID: "p1", SuccessRate: 0, ServerSuccessRate: 1, AvgLatencyMs: 200, Samples: 50},
+		{OrgID: "org_b", ProviderID: "p1", SuccessRate: 1, ServerSuccessRate: 1, AvgLatencyMs: 200, Samples: 50},
+	})
+
+	if g := snap.global["p1"]; g < 0.95 {
+		t.Errorf("global score should ignore tenant 4xx errors, got %.3f", g)
+	}
+	if a := snap.tenants["org_a"]["p1"]; a > 0.5 {
+		t.Errorf("org_a should see its own failures, got %.3f", a)
+	}
+	if b := snap.tenants["org_b"]["p1"]; b < 0.95 {
+		t.Errorf("org_b should not be affected by org_a, got %.3f", b)
+	}
+}
+
+func TestBuildHealthSnapshot_ProviderOutageIsGlobal(t *testing.T) {
+	// org_a hits a provider outage (5xx); org_c has no traffic of its own.
+	snap := buildHealthSnapshot([]repository.ProviderHealthStats{
+		{OrgID: "org_a", ProviderID: "p1", SuccessRate: 0.2, ServerSuccessRate: 0.2, AvgLatencyMs: 200, Samples: 50},
+	})
+	s := &ProviderHealthStore{ttl: time.Minute, fetch: func(context.Context) (*providerHealthSnapshot, error) { return snap, nil }}
+
+	if got := s.ScoresFor(context.Background(), "org_c")["p1"]; got > 0.5 {
+		t.Errorf("a tenant without traffic should still see the provider outage, got %.3f", got)
+	}
+}
+
+func TestBuildHealthSnapshot_FewSamplesUseGlobal(t *testing.T) {
+	snap := buildHealthSnapshot([]repository.ProviderHealthStats{
+		{OrgID: "org_a", ProviderID: "p1", SuccessRate: 0, ServerSuccessRate: 1, AvgLatencyMs: 200, Samples: minTenantHealthSamples - 1},
+		{OrgID: "org_b", ProviderID: "p1", SuccessRate: 1, ServerSuccessRate: 1, AvgLatencyMs: 200, Samples: 100},
+	})
+	s := &ProviderHealthStore{ttl: time.Minute, fetch: func(context.Context) (*providerHealthSnapshot, error) { return snap, nil }}
+
+	if _, ok := snap.tenants["org_a"]; ok {
+		t.Error("org_a has too few samples for a tenant score")
+	}
+	if got := s.ScoresFor(context.Background(), "org_a")["p1"]; got < 0.95 {
+		t.Errorf("org_a should fall back to the global score, got %.3f", got)
+	}
+}
+
+func TestScoresFor_DoesNotMutateGlobal(t *testing.T) {
+	snap := buildHealthSnapshot([]repository.ProviderHealthStats{
+		{OrgID: "org_a", ProviderID: "p1", SuccessRate: 0, ServerSuccessRate: 1, AvgLatencyMs: 200, Samples: 50},
+		{OrgID: "org_b", ProviderID: "p2", SuccessRate: 1, ServerSuccessRate: 1, AvgLatencyMs: 200, Samples: 50},
+	})
+	s := &ProviderHealthStore{ttl: time.Minute, fetch: func(context.Context) (*providerHealthSnapshot, error) { return snap, nil }}
+	ctx := context.Background()
+
+	_ = s.ScoresFor(ctx, "org_a")
+	if got := s.Scores(ctx)["p1"]; got < 0.95 {
+		t.Errorf("tenant overlay leaked into the global scores, got %.3f", got)
+	}
+	if got := s.ScoresFor(ctx, "")["p1"]; got < 0.95 {
+		t.Errorf("an empty org should get global scores, got %.3f", got)
 	}
 }

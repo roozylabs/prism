@@ -413,7 +413,11 @@ func (r *Router) ResolveSemantic(
 
 	var healthScores map[string]float64
 	if r.health != nil {
-		healthScores = r.health.Scores(ctx)
+		orgID := ""
+		if gatewayKey != nil && gatewayKey.OrgID != nil {
+			orgID = *gatewayKey.OrgID
+		}
+		healthScores = r.health.ScoresFor(ctx, orgID)
 	}
 
 	scores := ScoreCandidatesWithBudgetAndTelemetry(candidates, chars, policy, budgetStatus, telemetryMap, healthScores)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/roozylabs/prism/internal/httputil"
+	"github.com/roozylabs/prism/internal/middleware"
 	"github.com/roozylabs/prism/internal/proxy"
 	"github.com/roozylabs/prism/internal/repository"
 )
@@ -75,7 +76,7 @@ func (h *DashboardHandler) GetProviderHealth(c *gin.Context) {
 
 	var scores map[string]float64
 	if h.health != nil {
-		scores = h.health.Scores(c.Request.Context())
+		scores = h.health.ScoresFor(c.Request.Context(), middleware.GetTenantContext(c).OrgID)
 	}
 	for i := range data {
 		score, ok := scores[data[i].ID]
