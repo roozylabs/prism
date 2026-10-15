@@ -102,7 +102,7 @@ func (r *Router) Resolve(ctx context.Context, modelSlug string, allowedModels []
 
 	strategy := r.resolveStrategy(provider)
 
-	creds, err := r.selectByStrategy(ctx, provider.ID, strategy, nil)
+	creds, err := r.selectByStrategy(ctx, provider.ID, strategy)
 	if err != nil {
 		return nil, err
 	}
@@ -198,17 +198,17 @@ func (r *Router) ResolveWithFallback(ctx context.Context, modelSlug string, gate
 		userOrOrgID = gatewayKey.UserID
 	}
 
-	allCreds, err := r.selectByStrategy(ctx, provider.ID, strategy, cooldown, userOrOrgID)
+	allCreds, err := r.selectByStrategy(ctx, provider.ID, strategy, userOrOrgID)
 	if err != nil {
 		return nil, fmt.Errorf("select credentials: %w", err)
 	}
+	cooling := coolingCredentials(ctx, cooldown, allCreds)
 
 	var routes []*Route
 	var coolingCount int
 	for _, cred := range allCreds {
 		c := cred
-		cooling, _ := cooldown.IsCoolingDown(ctx, c.ID)
-		if cooling {
+		if cooling[c.ID] {
 			coolingCount++
 			continue
 		}
@@ -241,21 +241,16 @@ func (r *Router) resolveStrategy(provider *models.Provider) string {
 	return "round_robin"
 }
 
-func (r *Router) selectByStrategy(ctx context.Context, providerID, strategy string, cooldown *goredis.CooldownStore, userOrOrgID ...string) ([]models.Credential, error) {
-	var coolingIDs []string
-	if cooldown != nil {
-		coolingIDs, _ = cooldown.GetCoolingIDs(ctx)
-	}
-
+func (r *Router) selectByStrategy(ctx context.Context, providerID, strategy string, userOrOrgID ...string) ([]models.Credential, error) {
 	var rawCreds []models.Credential
 	var err error
 	switch strategy {
 	case "lru":
-		rawCreds, err = r.creds.FindLRU(ctx, providerID, coolingIDs, userOrOrgID...)
+		rawCreds, err = r.creds.FindLRU(ctx, providerID, nil, userOrOrgID...)
 	case "fallback_cascade":
-		rawCreds, err = r.creds.FindAllActiveByProviderID(ctx, providerID, coolingIDs, userOrOrgID...)
+		rawCreds, err = r.creds.FindAllActiveByProviderID(ctx, providerID, nil, userOrOrgID...)
 	default:
-		rawCreds, err = r.creds.FindRoundRobin(ctx, providerID, coolingIDs, userOrOrgID...)
+		rawCreds, err = r.creds.FindRoundRobin(ctx, providerID, nil, userOrOrgID...)
 	}
 	if err != nil {
 		return nil, err
@@ -276,22 +271,30 @@ func (r *Router) selectByStrategy(ctx context.Context, providerID, strategy stri
 // requestState caches per-request lookups so the ResolveSemantic winner loop
 // avoids redundant DB/Redis roundtrips when multiple candidates share a provider.
 type requestState struct {
-	coolingIDs []string
 	providers  map[string]*models.Provider
 	strategies map[string]string
 	credSets   map[string][]models.Credential
+	cooling    map[string]map[string]bool // provider ID → cooling credential IDs
 }
 
-func (r *Router) buildRequestState(ctx context.Context, cooldownStore *goredis.CooldownStore) *requestState {
-	state := &requestState{
+func (r *Router) buildRequestState() *requestState {
+	return &requestState{
 		providers:  make(map[string]*models.Provider),
 		strategies: make(map[string]string),
 		credSets:   make(map[string][]models.Credential),
+		cooling:    make(map[string]map[string]bool),
 	}
-	if cooldownStore != nil {
-		state.coolingIDs, _ = cooldownStore.GetCoolingIDs(ctx)
+}
+
+// coolingCredentials returns the IDs of creds that are cooling down. Redis
+// errors fail open (no credential treated as cooling), as before.
+func coolingCredentials(ctx context.Context, cooldown *goredis.CooldownStore, creds []models.Credential) map[string]bool {
+	ids := make([]string, len(creds))
+	for i, c := range creds {
+		ids[i] = c.ID
 	}
-	return state
+	cooling, _ := cooldown.CoolingSet(ctx, ids)
+	return cooling
 }
 
 func (r *Router) getCachedProvider(ctx context.Context, state *requestState, providerID string) (*models.Provider, error) {
@@ -323,11 +326,11 @@ func (r *Router) getCachedCredentials(ctx context.Context, state *requestState, 
 	var err error
 	switch strategy {
 	case "lru":
-		creds, err = r.creds.FindLRU(ctx, providerID, state.coolingIDs, userOrOrgID...)
+		creds, err = r.creds.FindLRU(ctx, providerID, nil, userOrOrgID...)
 	case "fallback_cascade":
-		creds, err = r.creds.FindAllActiveByProviderID(ctx, providerID, state.coolingIDs, userOrOrgID...)
+		creds, err = r.creds.FindAllActiveByProviderID(ctx, providerID, nil, userOrOrgID...)
 	default:
-		creds, err = r.creds.FindRoundRobin(ctx, providerID, state.coolingIDs, userOrOrgID...)
+		creds, err = r.creds.FindRoundRobin(ctx, providerID, nil, userOrOrgID...)
 	}
 	if err != nil {
 		return nil, err
@@ -454,7 +457,7 @@ func (r *Router) ResolveSemantic(
 	var winningProvider *models.Provider
 	var lastCoolingErr bool
 
-	state := r.buildRequestState(ctx, cooldown)
+	state := r.buildRequestState()
 
 	// Iterate scored candidate models in rank order to find the first model with active credentials
 	for _, sc := range scores {
@@ -478,12 +481,17 @@ func (r *Router) ResolveSemantic(
 			continue
 		}
 
+		cooling, ok := state.cooling[prov.ID]
+		if !ok {
+			cooling = coolingCredentials(ctx, cooldown, allCreds)
+			state.cooling[prov.ID] = cooling
+		}
+
 		var activeRoutes []*Route
 		var coolingCount int
 		for _, cred := range allCreds {
 			c := cred
-			cooling, _ := cooldown.IsCoolingDown(ctx, c.ID)
-			if cooling {
+			if cooling[c.ID] {
 				coolingCount++
 				continue
 			}
