@@ -381,9 +381,10 @@ docker compose logs -f
 
 ### 6.3 Run Database Migrations
 
+Migrations are applied only by the one-shot `migrator` service (`./server --migrate-only`). The `api` and `api-green` containers run with `RUN_MIGRATIONS=false` and wait for the migrator to finish successfully before they start, so `docker compose up` applies pending migrations first. To apply them by hand:
+
 ```bash
-# Run migrations using golang-migrate
-docker compose exec api ./server migrate up
+docker compose run --rm migrator
 
 # Or if you have migrate CLI installed locally
 migrate -path ./migrations -database "postgres://postgres:${POSTGRES_PASSWORD}@localhost:5432/ai_gateway?sslmode=disable" up
