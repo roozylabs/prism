@@ -7,6 +7,9 @@ services:
       dockerfile: Dockerfile
     container_name: prism-api
     restart: unless-stopped
+    # Longer than SHUTDOWN_TIMEOUT_SECONDS so in-flight LLM streams can drain
+    # before Docker sends SIGKILL (default grace period is 10s).
+    stop_grace_period: 45s
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-8080}
@@ -50,6 +53,9 @@ services:
       dockerfile: Dockerfile
     container_name: prism-api-green
     restart: unless-stopped
+    # Longer than SHUTDOWN_TIMEOUT_SECONDS so in-flight LLM streams can drain
+    # before Docker sends SIGKILL (default grace period is 10s).
+    stop_grace_period: 45s
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-8080}

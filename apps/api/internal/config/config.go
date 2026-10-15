@@ -22,6 +22,10 @@ type Config struct {
 	CooldownSeconds int
 	RateLimitPerKey int
 	RunMigrations   bool
+	// ShutdownTimeoutSeconds is how long in-flight requests (including LLM
+	// streams) may run after SIGTERM before remaining connections are closed.
+	// Keep it below the container's stop grace period.
+	ShutdownTimeoutSeconds int
 	// MCPLocalStdioEnabled allows MCP servers of type "local", which spawn an
 	// operator-host process over stdio. Any user who can create MCP servers can
 	// choose the command, so this must stay off unless every such user is trusted
@@ -44,6 +48,8 @@ func Load() (*Config, error) {
 		CooldownSeconds: getEnvInt("COOLDOWN_SECONDS", 60),
 		RateLimitPerKey: getEnvInt("RATE_LIMIT_PER_KEY", 100),
 		RunMigrations:   getEnvBool("RUN_MIGRATIONS", true),
+
+		ShutdownTimeoutSeconds: getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 30),
 
 		MCPLocalStdioEnabled: getEnvBool("MCP_LOCAL_STDIO_ENABLED", false),
 	}, nil
