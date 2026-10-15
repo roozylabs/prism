@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/redis"
@@ -92,19 +93,13 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 		}
 	}
 
-	weights := complexityAdjustedWeights(policy, chars.Complexity)
+	weights := taskAwareWeights(complexityAdjustedWeights(policy, chars.Complexity), chars.Task)
 
-	// Find max prices among candidates for normalization
-	maxInput := 0.0
-	maxOutput := 0.0
-	for _, m := range filtered {
-		if m.InputPricePer1M > maxInput {
-			maxInput = m.InputPricePer1M
-		}
-		if m.OutputPricePer1M > maxOutput {
-			maxOutput = m.OutputPricePer1M
-		}
+	referencePrice := defaultCostReferencePrice
+	if v, ok := policy.Constraints["cost_reference_price"]; ok && v > 0 {
+		referencePrice = v
 	}
+	outputRatio := OutputRatioByTask(chars.Task)
 
 	scores := make([]*ModelScore, 0, len(filtered))
 	for _, m := range filtered {
@@ -118,11 +113,7 @@ func ScoreCandidatesWithTelemetry(candidates []*models.Model, chars RequestChara
 		qualityScore := m.QualityScore
 		qualityWeight := weights["quality"]
 
-		// Cost score (normalized 0-1, lower price = higher score)
-		costScore := 0.0
-		if maxInput+maxOutput > 0 {
-			costScore = 1.0 - (m.InputPricePer1M+m.OutputPricePer1M)/(maxInput+maxOutput)
-		}
+		costScore := costScoreFor(m, outputRatio, referencePrice)
 		costWeight := weights["cost"]
 
 		// Speed score (dynamic empirical adjustment if telemetry sample available)
@@ -221,6 +212,54 @@ func complexityAdjustedWeights(policy *RoutingPolicy, complexity Complexity) map
 			}
 		}
 	}
+	return adjusted
+}
+
+// defaultCostReferencePrice is the blended price (USD per 1M input tokens,
+// with output weighted by the task's output ratio) that scores 0 on cost.
+// Policies can override it with the "cost_reference_price" constraint.
+const defaultCostReferencePrice = 20.0
+
+// costScoreFor scores a model's price on an absolute log scale: free models
+// score 1, models at or above the reference price score 0. The score does not
+// depend on which other candidates are present, and the log scale keeps
+// differences between cheap models visible.
+func costScoreFor(m *models.Model, outputRatio, referencePrice float64) float64 {
+	blended := m.InputPricePer1M + m.OutputPricePer1M*outputRatio
+	if blended <= 0 {
+		return 1
+	}
+	score := 1 - math.Log1p(blended)/math.Log1p(referencePrice)
+	return min(max(score, 0), 1)
+}
+
+// hasCapabilityScore reports whether models carry a dedicated score for the
+// task. Other tasks fall back to the quality score in taskMatchScore.
+func hasCapabilityScore(task TaskType) bool {
+	return task == TaskCoding || task == TaskReasoning || task == TaskWriting
+}
+
+// taskAwareWeights moves the task_match weight onto quality, cost and speed
+// (in proportion to their weights) for tasks without a dedicated capability
+// score. Otherwise task_match would score quality a second time.
+func taskAwareWeights(weights map[string]float64, task TaskType) map[string]float64 {
+	taskWeight := weights["task_match"]
+	if hasCapabilityScore(task) || taskWeight == 0 {
+		return weights
+	}
+	othersTotal := weights["quality"] + weights["cost"] + weights["speed"]
+	if othersTotal <= 0 {
+		return weights
+	}
+
+	adjusted := make(map[string]float64, len(weights))
+	for key, w := range weights {
+		adjusted[key] = w
+	}
+	for _, key := range []string{"quality", "cost", "speed"} {
+		adjusted[key] += taskWeight * weights[key] / othersTotal
+	}
+	adjusted["task_match"] = 0
 	return adjusted
 }
 
