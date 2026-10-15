@@ -357,7 +357,7 @@ func (r *Router) ResolveSemantic(
 		userOrOrgID = gatewayKey.UserID
 	}
 
-	chars := ClassifyRequest(req.Messages)
+	chars := ClassifyRequest(req.Messages).withExtraContext(estimateJSONTokens(req.Tools))
 
 	// Extract prompt preview snippet (last user prompt or last message content)
 	promptPreview := extractLastUserPreview(req)

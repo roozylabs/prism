@@ -131,10 +131,7 @@ func TestClassifyRequest_EstimatedTokens(t *testing.T) {
 	req := []map[string]interface{}{msg(content)}
 	chars := ClassifyRequest(req)
 
-	expectedInput := len(content) / 4
-	if expectedInput < 1 {
-		expectedInput = 1
-	}
+	expectedInput := (len(content) + 3) / 4               // ASCII text, rounded up
 	expectedOutputRatio := OutputRatioByTask(TaskWriting) // 0.55
 	expectedEstimated := int(float64(expectedInput) * (1 + expectedOutputRatio))
 

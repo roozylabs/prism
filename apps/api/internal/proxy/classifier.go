@@ -114,13 +114,11 @@ func messageCount(messages []map[string]interface{}) int {
 	return len(messages)
 }
 
-// totalCharCount returns the total character count across all message content.
+// totalCharCount returns the total text length across all message content.
 func totalCharCount(messages []map[string]interface{}) int {
 	total := 0
 	for _, m := range messages {
-		if content, ok := m["content"].(string); ok {
-			total += len(content)
-		}
+		total += len(messageText(m))
 	}
 	return total
 }
@@ -385,19 +383,20 @@ func hasCodingKeywords(text string) bool {
 	return false
 }
 
-// estimateTokens estimates token count from character count (rough: ~4 chars per token).
-func estimateTokens(charCount int) int {
-	tokens := charCount / 4
-	if tokens < 1 {
-		tokens = 1
+// withExtraContext returns the characteristics with extra prompt tokens (e.g.
+// tool definitions) added to the context and the estimated total.
+func (c RequestCharacteristics) withExtraContext(tokens int) RequestCharacteristics {
+	if tokens <= 0 {
+		return c
 	}
-	return tokens
+	c.ContextTokens += tokens
+	c.EstimatedTokens = int(math.Round(float64(c.ContextTokens) * (1 + OutputRatioByTask(c.Task))))
+	return c
 }
 
 // ClassifyRequest analyzes a request and returns its characteristics.
 func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
 	text := taskText(messages)
-	charCount := totalCharCount(messages)
 
 	// Complexity looks at the conversation only: a client's fixed system
 	// prompt says nothing about how hard the current request is.
@@ -479,7 +478,7 @@ func ClassifyRequest(messages []map[string]interface{}) RequestCharacteristics {
 		complexity = ComplexityLow
 	}
 
-	tokens := estimateTokens(charCount)
+	tokens := max(estimateMessagesTokens(messages), 1)
 	outputRatio := OutputRatioByTask(task)
 	estimatedTokens := int(math.Round(float64(tokens) * (1 + outputRatio)))
 
