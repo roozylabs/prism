@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -10,12 +11,23 @@ import (
 	"github.com/roozylabs/prism/internal/repository"
 )
 
+type providerStore interface {
+	ListByUserID(ctx context.Context, userID string) ([]models.Provider, error)
+	FindByID(ctx context.Context, id string) (*models.Provider, error)
+	Create(ctx context.Context, p *models.Provider) error
+	Update(ctx context.Context, p *models.Provider) error
+	Delete(ctx context.Context, id, userID string) error
+}
+
+// ProviderHandler serves providers. Everyone sees their own providers and
+// the shared system ones (no owner); only an owner can change or delete a
+// provider, so system providers are changed by operators alone.
 type ProviderHandler struct {
-	providers   *repository.ProviderRepository
+	providers   providerStore
 	gatewayKeys *repository.GatewayKeyRepository
 }
 
-func NewProviderHandler(providers *repository.ProviderRepository, gatewayKeys *repository.GatewayKeyRepository) *ProviderHandler {
+func NewProviderHandler(providers providerStore, gatewayKeys *repository.GatewayKeyRepository) *ProviderHandler {
 	return &ProviderHandler{
 		providers:   providers,
 		gatewayKeys: gatewayKeys,
@@ -101,9 +113,8 @@ func (h *ProviderHandler) Create(c *gin.Context) {
 func (h *ProviderHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 	userID := c.GetString("userId")
-	existing, err := h.providers.FindByID(c.Request.Context(), id)
-	if err != nil || (userID != "" && existing.UserID != userID && existing.UserID != "user_admin" && existing.UserID != "") {
-		httputil.RespondNotFound(c, "Provider not found", err, "PROVIDER_NOT_FOUND")
+	existing, ok := h.ownedProvider(c, id, userID)
+	if !ok {
 		return
 	}
 
@@ -111,6 +122,9 @@ func (h *ProviderHandler) Update(c *gin.Context) {
 		httputil.RespondBadRequest(c, "Invalid request payload", err, "INVALID_REQUEST_BODY")
 		return
 	}
+	// The body may not move the provider to another id or owner.
+	existing.ID = id
+	existing.UserID = userID
 
 	if err := h.providers.Update(c.Request.Context(), existing); err != nil {
 		httputil.RespondInternalError(c, "Failed to update provider", err, "PROVIDER_UPDATE_FAILED")
@@ -132,9 +146,7 @@ func (h *ProviderHandler) Update(c *gin.Context) {
 func (h *ProviderHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	userID := c.GetString("userId")
-	existing, err := h.providers.FindByID(c.Request.Context(), id)
-	if err != nil || (userID != "" && existing.UserID != userID && existing.UserID != "user_admin" && existing.UserID != "") {
-		httputil.RespondNotFound(c, "Provider not found", err, "PROVIDER_NOT_FOUND")
+	if _, ok := h.ownedProvider(c, id, userID); !ok {
 		return
 	}
 
@@ -147,9 +159,34 @@ func (h *ProviderHandler) Delete(c *gin.Context) {
 		}
 	}
 
-	if err := h.providers.Delete(c.Request.Context(), id); err != nil {
+	if err := h.providers.Delete(c.Request.Context(), id, userID); err != nil {
 		httputil.RespondInternalError(c, "Failed to delete provider", err, "PROVIDER_DELETE_FAILED")
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// ownedProvider returns the provider when userID owns it, and otherwise
+// writes the response: 404 for a provider the user cannot see, 403 for a
+// shared system provider.
+func (h *ProviderHandler) ownedProvider(c *gin.Context, id, userID string) (*models.Provider, bool) {
+	p, err := h.providers.FindByID(c.Request.Context(), id)
+	if err != nil {
+		httputil.RespondNotFound(c, "Provider not found", err, "PROVIDER_NOT_FOUND")
+		return nil, false
+	}
+	if userID != "" && p.UserID == userID {
+		return p, true
+	}
+	if isSharedProvider(p) {
+		httputil.RespondForbidden(c, "System providers can only be changed by operators", nil, "SYSTEM_PROVIDER_READ_ONLY")
+		return nil, false
+	}
+	httputil.RespondNotFound(c, "Provider not found", nil, "PROVIDER_NOT_FOUND")
+	return nil, false
+}
+
+// isSharedProvider reports whether p is a system provider every user can use.
+func isSharedProvider(p *models.Provider) bool {
+	return p.UserID == "" || p.UserID == "user_admin"
 }
