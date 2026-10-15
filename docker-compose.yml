@@ -13,7 +13,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
       HASH_KEY: ${HASH_KEY:-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -56,7 +56,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
       HASH_KEY: ${HASH_KEY:-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
