@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -42,30 +41,28 @@ func (s *CooldownStore) GetCooldownTTL(ctx context.Context, credentialID string)
 	return s.rdb.TTL(ctx, key).Result()
 }
 
-func (s *CooldownStore) GetCoolingIDs(ctx context.Context) ([]string, error) {
-	if s == nil || s.rdb == nil {
-		return nil, nil
+// CoolingSet reports which of the given credentials are cooling down, with a
+// single MGET over their cooldown keys. Only cooling credentials are present
+// in the result. A nil store returns an empty set.
+func (s *CooldownStore) CoolingSet(ctx context.Context, credentialIDs []string) (map[string]bool, error) {
+	cooling := make(map[string]bool)
+	if s == nil || s.rdb == nil || len(credentialIDs) == 0 {
+		return cooling, nil
 	}
-	var ids []string
-	var cursor uint64
-	for {
-		keys, nextCursor, err := s.rdb.Scan(ctx, cursor, "credential:*:cooldown", 100).Result()
-		if err != nil && !errors.Is(err, goredis.Nil) {
-			return nil, err
-		}
-		for _, key := range keys {
-			// key format: credential:<id>:cooldown
-			parts := strings.Split(key, ":")
-			if len(parts) == 3 && parts[1] != "" {
-				ids = append(ids, parts[1])
-			}
-		}
-		cursor = nextCursor
-		if cursor == 0 {
-			break
+	keys := make([]string, len(credentialIDs))
+	for i, id := range credentialIDs {
+		keys[i] = fmt.Sprintf("credential:%s:cooldown", id)
+	}
+	vals, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return cooling, err
+	}
+	for i, v := range vals {
+		if v == "1" {
+			cooling[credentialIDs[i]] = true
 		}
 	}
-	return ids, nil
+	return cooling, nil
 }
 
 func (s *CooldownStore) RemoveCooldown(ctx context.Context, credentialID string) error {
