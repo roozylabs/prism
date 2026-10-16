@@ -41,8 +41,8 @@ type OrganizationMember struct {
 	UserID    string    `db:"user_id" json:"userId"`
 	UserEmail string    `db:"user_email" json:"userEmail,omitempty"`
 	UserName  string    `db:"user_name" json:"userName,omitempty"`
-	Role      string    `db:"role" json:"role"`       // Deprecated: Kept as read-only for 1 release cycle. role_id is authoritative.
-	RoleID    string    `db:"role_id" json:"roleId"` // Authoritative foreign key to roles.id
+	Role      string    `db:"-" json:"role"`         // Slug of the role RoleID points to
+	RoleID    string    `db:"role_id" json:"roleId"` // Foreign key to roles.id
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
 }

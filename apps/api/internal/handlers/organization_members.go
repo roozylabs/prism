@@ -70,10 +70,15 @@ func (h *OrganizationMemberHandler) InviteMember(c *gin.Context) {
 
 	invite := &models.MemberInvite{
 		OrganizationID: orgID,
+		RoleID:         req.Role,
 		Email:          req.Email,
 	}
 
 	if err := h.rbacRepo.CreateInvite(c.Request.Context(), invite); err != nil {
+		if errors.Is(err, repository.ErrInvalidRole) {
+			httputil.RespondError(c, http.StatusBadRequest, "Unknown role", err, "INVALID_ROLE")
+			return
+		}
 		httputil.RespondError(c, http.StatusInternalServerError, "Failed to create member invitation", err, "INVITE_CREATE_FAILED")
 		return
 	}
@@ -115,6 +120,10 @@ func (h *OrganizationMemberHandler) UpdateMemberRole(c *gin.Context) {
 		}
 		if errors.Is(err, repository.ErrNotMember) {
 			httputil.RespondError(c, http.StatusNotFound, "Member not found in organization", err, "MEMBER_NOT_FOUND")
+			return
+		}
+		if errors.Is(err, repository.ErrInvalidRole) {
+			httputil.RespondError(c, http.StatusBadRequest, "Unknown role", err, "INVALID_ROLE")
 			return
 		}
 		httputil.RespondError(c, http.StatusInternalServerError, "Failed to update member role", err, "MEMBER_UPDATE_FAILED")

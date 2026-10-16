@@ -27,14 +27,13 @@ func NewRBACRepository(db *sql.DB) *RBACRepository {
 }
 
 // GetUserPermissions queries the authoritative role and permissions for a user in the specified organization.
-// role_id is the sole authoritative link. Returns strictly fail-closed error if query fails or membership record is absent.
+// role_id is the only link to the role. Returns strictly fail-closed error if query fails or membership record is absent.
 // Note: Owner wildcard '*' injection is eliminated; owner permissions are explicitly sourced from role_permissions rows.
 func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string, orgID string) ([]string, string, error) {
 	if userID == "" || orgID == "" {
 		return nil, "", ErrNotMember
 	}
 
-	// Authoritative join using om.role_id = r.id (role string column is deprecated read-only)
 	query := `
 		SELECT r.slug, COALESCE(p.code, '')
 		FROM organization_members om
@@ -99,11 +98,75 @@ func (r *RBACRepository) GetOrganizationMemberRole(ctx context.Context, orgID, u
 	return slug, nil
 }
 
+// rowQuerier is satisfied by both *sql.DB and *sql.Tx.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// resolveRole finds the role a member of orgID can be given, by slug or id:
+// a system role or one of the organization's own. A system role wins a slug
+// clash, so "owner" always means the built-in owner. Unknown roles return
+// ErrInvalidRole.
+func resolveRole(ctx context.Context, q rowQuerier, orgID, role string) (id, slug string, err error) {
+	err = q.QueryRowContext(ctx,
+		`SELECT id::text, slug FROM roles
+		 WHERE (slug = $1 OR id::text = $1) AND (is_system OR organization_id = $2)
+		 ORDER BY is_system DESC
+		 LIMIT 1`,
+		role, orgID,
+	).Scan(&id, &slug)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrInvalidRole
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("resolve role: %w", err)
+	}
+	return id, slug, nil
+}
+
+// lockedMemberIsOwner locks a member row and reports whether it holds the
+// system owner role.
+func lockedMemberIsOwner(ctx context.Context, tx *sql.Tx, orgID, userID string) (bool, error) {
+	var isOwner bool
+	err := tx.QueryRowContext(ctx,
+		`SELECT r.slug = 'owner' AND r.is_system
+		 FROM organization_members om
+		 JOIN roles r ON r.id = om.role_id
+		 WHERE om.org_id = $1 AND om.user_id = $2
+		 FOR UPDATE OF om`,
+		orgID, userID,
+	).Scan(&isOwner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotMember
+	}
+	return isOwner, err
+}
+
+// lockedOwnerCount locks every owner row of an organization, so two
+// concurrent demotions cannot both see a second owner, and counts them.
+func lockedOwnerCount(ctx context.Context, tx *sql.Tx, orgID string) (int, error) {
+	var count int
+	err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM (
+			SELECT om.id
+			FROM organization_members om
+			JOIN roles r ON r.id = om.role_id
+			WHERE om.org_id = $1 AND r.slug = 'owner' AND r.is_system
+			FOR UPDATE OF om
+		) owners`,
+		orgID,
+	).Scan(&count)
+	return count, err
+}
+
 // CountOwners returns the number of active owners for an organization.
 func (r *RBACRepository) CountOwners(ctx context.Context, orgID string) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM organization_members WHERE org_id = $1 AND role = 'owner'`,
+		`SELECT COUNT(*)
+		 FROM organization_members om
+		 JOIN roles r ON r.id = om.role_id
+		 WHERE om.org_id = $1 AND r.slug = 'owner' AND r.is_system`,
 		orgID,
 	).Scan(&count)
 	if err != nil {
@@ -115,8 +178,9 @@ func (r *RBACRepository) CountOwners(ctx context.Context, orgID string) (int, er
 // ListOrganizationMembers returns all members for an organization.
 func (r *RBACRepository) ListOrganizationMembers(ctx context.Context, orgID string) ([]models.OrganizationMember, error) {
 	query := `
-		SELECT om.id, om.org_id, om.user_id, COALESCE(u.email, ''), COALESCE(u.name, ''), om.role, COALESCE(om.role_id::text, ''), om.created_at, om.updated_at
+		SELECT om.id, om.org_id, om.user_id, COALESCE(u.email, ''), COALESCE(u.name, ''), r.slug, om.role_id::text, om.created_at, om.updated_at
 		FROM organization_members om
+		JOIN roles r ON r.id = om.role_id
 		LEFT JOIN "user" u ON om.user_id = u.id
 		WHERE om.org_id = $1
 		ORDER BY om.created_at ASC
@@ -138,27 +202,28 @@ func (r *RBACRepository) ListOrganizationMembers(ctx context.Context, orgID stri
 	return members, rows.Err()
 }
 
-// AddOrganizationMember adds a user to an organization, resolving role_id dynamically.
+// AddOrganizationMember adds a user to an organization with the given role
+// slug or id, or changes the role of an existing member. Unknown roles return
+// ErrInvalidRole.
 func (r *RBACRepository) AddOrganizationMember(ctx context.Context, orgID, userID, role string) error {
+	roleID, _, err := resolveRole(ctx, r.db, orgID, role)
+	if err != nil {
+		return err
+	}
 	now := time.Now()
-	id := uuid.New().String()
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO organization_members (id, org_id, user_id, role, role_id, created_at, updated_at)
-		 VALUES (
-			$1, $2, $3, $4,
-			COALESCE((SELECT id FROM roles WHERE (slug = $4 OR id::text = $4) AND (is_system = true OR organization_id = $2) LIMIT 1), '00000000-0000-0000-0000-000000000001'::uuid),
-			$5, $6
-		 )
+	_, err = r.db.ExecContext(ctx,
+		`INSERT INTO organization_members (id, org_id, user_id, role_id, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $5)
 		 ON CONFLICT (org_id, user_id) DO UPDATE SET
-			role = EXCLUDED.role,
 			role_id = EXCLUDED.role_id,
 			updated_at = EXCLUDED.updated_at`,
-		id, orgID, userID, role, now, now,
+		uuid.New().String(), orgID, userID, roleID, now,
 	)
 	return err
 }
 
-// UpdateMemberRole updates a member's role with atomic Last-Owner invariant safety using row-level locking.
+// UpdateMemberRole gives a member another role, by slug or id, without ever
+// leaving the organization without an owner.
 func (r *RBACRepository) UpdateMemberRole(ctx context.Context, orgID, userID, newRole string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -166,50 +231,35 @@ func (r *RBACRepository) UpdateMemberRole(ctx context.Context, orgID, userID, ne
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Lock target member row for atomic update
-	var currentRole string
-	err = tx.QueryRowContext(ctx,
-		`SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2 FOR UPDATE`,
-		orgID, userID,
-	).Scan(&currentRole)
+	roleID, slug, err := resolveRole(ctx, tx, orgID, newRole)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotMember
-		}
 		return err
 	}
-
-	if currentRole == "owner" && newRole != "owner" {
-		// Lock all owner rows in this organization to prevent concurrent demotion race conditions
-		var ownerCount int
-		err = tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM organization_members WHERE org_id = $1 AND role = 'owner' FOR UPDATE`,
-			orgID,
-		).Scan(&ownerCount)
+	isOwner, err := lockedMemberIsOwner(ctx, tx, orgID, userID)
+	if err != nil {
+		return err
+	}
+	if isOwner && slug != "owner" {
+		owners, err := lockedOwnerCount(ctx, tx, orgID)
 		if err != nil {
 			return err
 		}
-		if ownerCount <= 1 {
+		if owners <= 1 {
 			return ErrCannotDemoteLastOwner
 		}
 	}
 
-	_, err = tx.ExecContext(ctx,
-		`UPDATE organization_members
-		 SET role = $1,
-		     role_id = COALESCE((SELECT id FROM roles WHERE (slug = $1 OR id::text = $1) AND (is_system = true OR organization_id = $3) LIMIT 1), role_id),
-		     updated_at = $2
-		 WHERE org_id = $3 AND user_id = $4`,
-		newRole, time.Now(), orgID, userID,
-	)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE organization_members SET role_id = $1, updated_at = $2 WHERE org_id = $3 AND user_id = $4`,
+		roleID, time.Now(), orgID, userID,
+	); err != nil {
 		return err
 	}
-
 	return tx.Commit()
 }
 
-// RemoveOrganizationMember removes a member from an organization with atomic Last-Owner invariant safety using row-level locking.
+// RemoveOrganizationMember removes a member without ever leaving the
+// organization without an owner.
 func (r *RBACRepository) RemoveOrganizationMember(ctx context.Context, orgID, userID string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -217,42 +267,26 @@ func (r *RBACRepository) RemoveOrganizationMember(ctx context.Context, orgID, us
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Lock target member row for atomic delete
-	var currentRole string
-	err = tx.QueryRowContext(ctx,
-		`SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2 FOR UPDATE`,
-		orgID, userID,
-	).Scan(&currentRole)
+	isOwner, err := lockedMemberIsOwner(ctx, tx, orgID, userID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotMember
-		}
 		return err
 	}
-
-	if currentRole == "owner" {
-		// Lock all owner rows to prevent concurrent removal race conditions
-		var ownerCount int
-		err = tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM organization_members WHERE org_id = $1 AND role = 'owner' FOR UPDATE`,
-			orgID,
-		).Scan(&ownerCount)
+	if isOwner {
+		owners, err := lockedOwnerCount(ctx, tx, orgID)
 		if err != nil {
 			return err
 		}
-		if ownerCount <= 1 {
+		if owners <= 1 {
 			return ErrCannotRemoveLastOwner
 		}
 	}
 
-	_, err = tx.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`,
 		orgID, userID,
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
-
 	return tx.Commit()
 }
 
@@ -411,6 +445,8 @@ func (r *RBACRepository) CreateCustomRole(ctx context.Context, role *models.Role
 	return tx.Commit()
 }
 
+// CreateInvite stores a pending invitation. invite.RoleID may be a role slug
+// or id and is replaced by the id; unknown roles return ErrInvalidRole.
 func (r *RBACRepository) CreateInvite(ctx context.Context, invite *models.MemberInvite) error {
 	if invite.ID == "" {
 		invite.ID = uuid.New().String()
@@ -425,11 +461,17 @@ func (r *RBACRepository) CreateInvite(ctx context.Context, invite *models.Member
 	}
 	invite.Status = "pending"
 
+	roleID, _, err := resolveRole(ctx, r.db, invite.OrganizationID, invite.RoleID)
+	if err != nil {
+		return err
+	}
+	invite.RoleID = roleID
+
 	query := `
 		INSERT INTO member_invites (id, organization_id, role_id, email, token, status, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-	_, err := r.db.ExecContext(ctx, query, invite.ID, invite.OrganizationID, invite.RoleID, invite.Email, invite.Token, invite.Status, invite.ExpiresAt, invite.CreatedAt)
+	_, err = r.db.ExecContext(ctx, query, invite.ID, invite.OrganizationID, invite.RoleID, invite.Email, invite.Token, invite.Status, invite.ExpiresAt, invite.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create member invite: %w", err)
 	}

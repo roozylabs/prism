@@ -135,23 +135,13 @@ func SeedMatrix(ctx context.Context, db *sql.DB) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// 1. Relax/Expand CHECK constraints on organization_members.role and workspace_members.role
-	_, _ = tx.ExecContext(ctx, `
-		ALTER TABLE organization_members DROP CONSTRAINT IF EXISTS organization_members_role_check;
-		ALTER TABLE organization_members ADD CONSTRAINT organization_members_role_check 
-			CHECK (role IN ('owner', 'admin', 'developer', 'billing_manager', 'agent_manager', 'finops_manager', 'auditor', 'viewer'));
-		ALTER TABLE workspace_members DROP CONSTRAINT IF EXISTS workspace_members_role_check;
-		ALTER TABLE workspace_members ADD CONSTRAINT workspace_members_role_check 
-			CHECK (role IN ('owner', 'admin', 'developer', 'operator', 'agent_manager', 'finops_manager', 'auditor', 'viewer'));
-	`)
-
-	// 2. Generate bcrypt hash for shared password
+	// 1. Generate bcrypt hash for shared password
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(SharedMatrixPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("generate bcrypt hash: %w", err)
 	}
 
-	// 3. Iterate through all Plan Tiers
+	// 2. Iterate through all Plan Tiers
 	for _, plan := range PlanSpecs {
 		orgSlug := fmt.Sprintf("org-matrix-%s", plan.Slug)
 		wsEngSlug := fmt.Sprintf("ws-%s-eng", plan.Slug)
@@ -264,16 +254,11 @@ func SeedMatrix(ctx context.Context, db *sql.DB) error {
 				return fmt.Errorf("insert account %s: %w", email, err)
 			}
 
-			// Insert / update "organization_members" linking role_id dynamically
+			// Insert / update "organization_members" with the system role of that slug
 			_, err = tx.ExecContext(ctx, `
-				INSERT INTO organization_members (id, org_id, user_id, role, role_id, created_at, updated_at)
-				VALUES (
-					$1, $2, $3, $4,
-					COALESCE((SELECT id FROM roles WHERE slug = $4 AND is_system = true LIMIT 1), '00000000-0000-0000-0000-000000000001'::uuid),
-					NOW(), NOW()
-				)
+				INSERT INTO organization_members (id, org_id, user_id, role_id, created_at, updated_at)
+				VALUES ($1, $2, $3, (SELECT id FROM roles WHERE slug = $4 AND is_system), NOW(), NOW())
 				ON CONFLICT (org_id, user_id) DO UPDATE SET
-					role = EXCLUDED.role,
 					role_id = EXCLUDED.role_id,
 					updated_at = NOW()
 			`, uuid.New().String(), orgID, userID, role.Slug)

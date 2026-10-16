@@ -109,9 +109,10 @@ export function InviteMemberSheet({ open, onOpenChange, onInviteSuccess }: Invit
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="admin">Administrator</SelectItem>
+                        <SelectItem value="owner">Owner</SelectItem>
                         <SelectItem value="developer">Developer</SelectItem>
-                        <SelectItem value="billing_manager">Billing Manager</SelectItem>
+                        <SelectItem value="agent_manager">Agent Manager</SelectItem>
+                        <SelectItem value="finops_manager">FinOps Manager</SelectItem>
                         <SelectItem value="auditor">Security Auditor</SelectItem>
                         <SelectItem value="viewer">Read-Only Viewer</SelectItem>
                       </SelectContent>
