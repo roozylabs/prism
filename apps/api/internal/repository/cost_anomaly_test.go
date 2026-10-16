@@ -146,3 +146,30 @@ func sum(vals []float64) float64 {
 	}
 	return s
 }
+
+func TestCombinedSpendCountsThisMonthAndToday(t *testing.T) {
+	db := migratedDatabase(t)
+	ctx := context.Background()
+	f := newSpendFixture(t, db, "alice", "bob")
+
+	var now, dayStart, monthStart time.Time
+	if err := db.QueryRow(`SELECT NOW(), date_trunc('day', NOW()), date_trunc('month', NOW())`).Scan(&now, &dayStart, &monthStart); err != nil {
+		t.Fatal(err)
+	}
+	f.spend("alice", now, 2)
+	f.spend("alice", monthStart.Add(-time.Hour), 100) // last month
+	f.spend("bob", now, 7)
+	wantMonthly := 2.0
+	if dayStart.After(monthStart) { // earlier this month, unless today is the 1st
+		f.spend("alice", dayStart.Add(-time.Minute), 3)
+		wantMonthly += 3
+	}
+
+	monthly, daily, err := NewBudgetRepository(db).GetCombinedSpend(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if monthly != wantMonthly || daily != 2 {
+		t.Fatalf("alice spent %v this month and %v today, want %v and 2", monthly, daily, wantMonthly)
+	}
+}
