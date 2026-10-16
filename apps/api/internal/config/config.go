@@ -43,6 +43,22 @@ type Config struct {
 	// MaxRequestBodyBytes caps every request body. Chat requests with
 	// inline images are the largest legitimate bodies.
 	MaxRequestBodyBytes int64
+	// Retention is how many days the retention worker keeps rows of each
+	// growing table; 0 keeps them forever.
+	Retention RetentionDays
+}
+
+// RetentionDays holds the RETENTION_*_DAYS settings.
+type RetentionDays struct {
+	RequestLogs      int
+	RoutingDecisions int
+	RequestPayloads  int
+	ToolInvocations  int
+	MCPInvocations   int
+	AIAuditTrails    int
+	AuditLogs        int
+	CostAnomalies    int
+	BudgetAlerts     int
 }
 
 const defaultTrustedProxies = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"
@@ -73,6 +89,20 @@ func Load() (*Config, error) {
 		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
 		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
 		MaxRequestBodyBytes: int64(p.int("MAX_REQUEST_BODY_MB", 20)) << 20,
+
+		// Prompt text (payloads, routing decisions' prompt_preview) is kept
+		// for the shortest time; request logs back billing and analytics.
+		Retention: RetentionDays{
+			RequestLogs:      p.int("RETENTION_REQUEST_LOGS_DAYS", 180),
+			RoutingDecisions: p.int("RETENTION_ROUTING_DECISIONS_DAYS", 30),
+			RequestPayloads:  p.int("RETENTION_REQUEST_PAYLOADS_DAYS", 30),
+			ToolInvocations:  p.int("RETENTION_TOOL_INVOCATIONS_DAYS", 30),
+			MCPInvocations:   p.int("RETENTION_MCP_INVOCATIONS_DAYS", 30),
+			AIAuditTrails:    p.int("RETENTION_AI_AUDIT_TRAILS_DAYS", 365),
+			AuditLogs:        p.int("RETENTION_AUDIT_LOGS_DAYS", 365),
+			CostAnomalies:    p.int("RETENTION_COST_ANOMALIES_DAYS", 180),
+			BudgetAlerts:     p.int("RETENTION_BUDGET_ALERTS_DAYS", 180),
+		},
 	}
 	if len(p.errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(p.errs...))

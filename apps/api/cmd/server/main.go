@@ -255,7 +255,8 @@ func main() {
 	workerMgr.Register("cost-anomaly", 15*time.Minute, anomalyWorker(anomalyRepo, eventPublisher))
 	workerMgr.Register("budget-alert", 2*time.Minute, budgetAlertWorker(budgetRepo, budgetAlertRepo, eventPublisher))
 	workerMgr.Register("latency-flush", 1*time.Hour, latencyFlushWorker(telemetry, modelRepo, modelLatencyRepo))
-	workerMgr.Register("retention-cleanup", 1*time.Hour, retentionWorker(payloadRepo, toolInvocationRepo))
+	workerMgr.Register("retention-cleanup", 1*time.Hour, workers.NewRetentionWorker(
+		repository.NewRetentionRepository(sqlDB), workers.RetentionPolicies(cfg.Retention)).Run)
 	workerMgr.Register("credential-recovery", 1*time.Minute, workers.NewCredentialRecoveryWorker(credentialRepo, cooldown).Run)
 	workerMgr.Start(workerCtx)
 
@@ -595,10 +596,5 @@ func budgetAlertWorker(budgets *repository.BudgetRepository, alerts *repository.
 
 func latencyFlushWorker(telemetry *goredis.ModelTelemetryStore, models *repository.ModelRepository, latency *repository.ModelLatencyHourlyRepository) func(context.Context) {
 	w := workers.NewLatencyFlushWorker(telemetry, models, latency)
-	return w.Run
-}
-
-func retentionWorker(payloads *repository.PayloadRepository, toolCalls *repository.ToolInvocationRepository) func(context.Context) {
-	w := workers.NewPayloadRetentionWorker(payloads, toolCalls)
 	return w.Run
 }

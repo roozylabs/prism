@@ -81,8 +81,3 @@ func (r *SessionRepository) Delete(ctx context.Context, token string) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM session WHERE token = $1`, token)
 	return err
 }
-
-func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM session WHERE expires_at < NOW()`)
-	return err
-}

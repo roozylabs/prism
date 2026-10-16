@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"time"
 
 	"github.com/roozylabs/prism/internal/models"
 )
@@ -28,12 +27,4 @@ func (r *PayloadRepository) Create(ctx context.Context, p *models.RequestPayload
 		p.RequestID, keyID, []byte(p.Messages), p.PromptHash, p.ByteSize,
 	)
 	return err
-}
-
-func (r *PayloadRepository) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM request_payloads WHERE created_at < $1`, cutoff)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
