@@ -7,17 +7,6 @@ function getBackendApiUrl(): string {
   return url.replace(/\/+$/, '');
 }
 
-function sanitizeTargetUrl(url: string, req: NextRequest): string {
-  try {
-    const parsed = new URL(url);
-    const hostHeader = req.headers.get('host') || 'app.prism.roozylabs.com';
-    const proto = req.headers.get('x-forwarded-proto') || 'https';
-    return `${proto}://${hostHeader}${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
-
 async function proxyV1Handler(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
   const resolvedParams = await params;
   const pathArray = resolvedParams?.path || [];
@@ -74,11 +63,11 @@ async function proxyV1Handler(request: NextRequest, { params }: { params: Promis
       headers: responseHeaders,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown connection error';
+    // The backend address and the connection error stay in the server log;
+    // clients get an OpenAI-style error like any other gateway failure.
     console.error('[V1 Proxy Error] Failed to proxy to:', targetUrl, error);
-    const sanitizedUrl = sanitizeTargetUrl(targetUrl, request);
     return NextResponse.json(
-      { error: 'Failed to connect to API backend', details: message, targetUrl: sanitizedUrl },
+      { error: { message: 'The gateway is unavailable. Please try again shortly.', type: 'api_error', code: 'gateway_unavailable' } },
       { status: 502 }
     );
   }
