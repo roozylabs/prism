@@ -15,9 +15,7 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
-      JWT_SECRET: ${JWT_SECRET:-secret}
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
-      HASH_KEY: ${HASH_KEY:-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
@@ -33,7 +31,7 @@ services:
       # other and the migrator for the same DDL locks.
       RUN_MIGRATIONS: "false"
     ports:
-      - "${SERVER_PORT:-8080}:8080"
+      - "127.0.0.1:${SERVER_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,7 +44,7 @@ services:
         aliases:
           - api
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ready"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -68,9 +66,7 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
-      JWT_SECRET: ${JWT_SECRET:-secret}
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
-      HASH_KEY: ${HASH_KEY:-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
@@ -86,7 +82,7 @@ services:
       # other and the migrator for the same DDL locks.
       RUN_MIGRATIONS: "false"
     ports:
-      - "${API_GREEN_PORT:-8085}:8080"
+      - "127.0.0.1:${API_GREEN_PORT:-8085}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,7 +95,7 @@ services:
         aliases:
           - api
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -265,7 +261,10 @@ services:
     image: redis:7-alpine
     container_name: prism-redis-cache
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redis}
+    # Caps memory so Redis cannot take the host down. Nothing is evicted:
+    # queued jobs and their state must not disappear, so at the cap writes
+    # fail instead (see "Redis failure behaviour" in docs/INFRASTRUCTURE.md).
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis} --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:

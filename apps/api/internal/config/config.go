@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -16,9 +17,7 @@ type Config struct {
 	ServerPort      string
 	DatabaseURL     string
 	RedisURL        string
-	JWTSecret       string
 	EncryptionKey   string
-	HashKey         string
 	MaxRetries      int
 	CooldownSeconds int
 	RateLimitPerKey int
@@ -48,30 +47,37 @@ type Config struct {
 
 const defaultTrustedProxies = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"
 
+// Load reads the configuration from the environment. APP_ENV defaults to
+// production, so a missing setting never relaxes secret validation or turns
+// on development features. A number or boolean that does not parse is an
+// error instead of silently falling back to its default.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
-	return &Config{
-		AppEnv:          getEnv("APP_ENV", "development"),
+	var p envParser
+	cfg := &Config{
+		AppEnv:          getEnvNonEmpty("APP_ENV", "production"),
 		ServerPort:      getEnv("SERVER_PORT", "8080"),
 		DatabaseURL:     getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/ai_gateway?sslmode=disable"),
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
-		JWTSecret:       getEnv("JWT_SECRET", ""),
 		EncryptionKey:   getEnv("ENCRYPTION_KEY", ""),
-		HashKey:         getEnv("HASH_KEY", ""),
-		MaxRetries:      getEnvInt("MAX_RETRIES", 2),
-		CooldownSeconds: getEnvInt("COOLDOWN_SECONDS", 60),
-		RateLimitPerKey: getEnvInt("RATE_LIMIT_PER_KEY", 100),
-		RunMigrations:   getEnvBool("RUN_MIGRATIONS", true),
+		MaxRetries:      p.int("MAX_RETRIES", 2),
+		CooldownSeconds: p.int("COOLDOWN_SECONDS", 60),
+		RateLimitPerKey: p.int("RATE_LIMIT_PER_KEY", 100),
+		RunMigrations:   p.bool("RUN_MIGRATIONS", true),
 
-		ShutdownTimeoutSeconds: getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 30),
+		ShutdownTimeoutSeconds: p.int("SHUTDOWN_TIMEOUT_SECONDS", 30),
 
-		MCPLocalStdioEnabled: getEnvBool("MCP_LOCAL_STDIO_ENABLED", false),
+		MCPLocalStdioEnabled: p.bool("MCP_LOCAL_STDIO_ENABLED", false),
 
 		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
 		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
-		MaxRequestBodyBytes: int64(getEnvInt("MAX_REQUEST_BODY_MB", 20)) << 20,
-	}, nil
+		MaxRequestBodyBytes: int64(p.int("MAX_REQUEST_BODY_MB", 20)) << 20,
+	}
+	if len(p.errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(p.errs...))
+	}
+	return cfg, nil
 }
 
 // IsDevelopment reports whether the app runs with APP_ENV=development.
@@ -119,20 +125,31 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func getEnvInt(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
+// envParser reads typed variables and collects the ones that do not parse.
+type envParser struct{ errs []error }
+
+func (p *envParser) int(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
 	}
-	return fallback
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		p.errs = append(p.errs, fmt.Errorf("%s=%q is not a non-negative integer", key, v))
+		return fallback
+	}
+	return n
 }
 
-func getEnvBool(key string, fallback bool) bool {
-	if v := os.Getenv(key); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			return b
-		}
+func (p *envParser) bool(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
 	}
-	return fallback
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		p.errs = append(p.errs, fmt.Errorf("%s=%q is not a boolean", key, v))
+		return fallback
+	}
+	return b
 }

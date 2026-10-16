@@ -13,13 +13,13 @@ Prism exposes distinct endpoints to differentiate process liveness from traffic 
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Liveness Probe (/health)                                               │
 │ • Checks: Process alive, HTTP looper responsive                         │
-│ • Usage: Kubernetes / Docker container restarts when failing           │
+│ • Always 200 while the process serves requests                         │
 └────────────────────────────────────────────────────────────────────────┘
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Readiness Probe (/ready)                                               │
-│ • Checks: PostgreSQL connection active (PingContext)                   │
-│ • Checks: Redis connection active (Ping)                               │
-│ • Usage: Load Balancer / Nginx routing traffic ONLY when HTTP 200 OK   │
+│ • Checks: PostgreSQL answers a ping within 2s                          │
+│ • Checks: Redis answers a ping within 2s                               │
+│ • Usage: Docker healthcheck and the blue/green deploy gate             │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,6 +60,6 @@ If PostgreSQL or Redis is unreachable:
 
 | Unreachable Dependency | `/health` / `/ready` Status | HTTP Code | Gateway Traffic Behavior | Recovery Action |
 |------------------------|-----------------------------|-----------|--------------------------|-----------------|
-| **PostgreSQL Down** | `status: "degraded"` | `503` | Rejects new requests with 503 Service Unavailable. | Restart Postgres container or fix network. |
-| **Redis Down** | `status: "degraded"` | `503` | Degrades rate limiting to local in-memory fallback. | Restart Redis container. |
+| **PostgreSQL Down** | `/health` 200, `/ready` 503 | `503` | Rejects new requests with 503 Service Unavailable. | Restart Postgres container or fix network. |
+| **Redis Down** | `/health` 200, `/ready` 503 | `503` | Rate limits and idempotency are not enforced; async jobs cannot be queued (see INFRASTRUCTURE.md, "Redis failure behaviour"). | Restart Redis container. |
 | **Provider API Down** | `status: "ok"` | `200` | Gateway is healthy; router bypasses failing provider via fallback. | Managed by Circuit Breaker & Cooldown. |

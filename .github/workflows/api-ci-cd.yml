@@ -102,9 +102,7 @@ jobs:
           SERVER_PORT: "8080"
           DATABASE_URL: "postgres://postgres:postgrespassword@localhost:5432/prism_test?sslmode=disable"
           REDIS_URL: "redis://localhost:6379"
-          JWT_SECRET: "test-jwt-secret-key-minimum-32-bytes!"
           ENCRYPTION_KEY: "test-encryption-key-32-bytes!!"
-          HASH_KEY: "test-hash-key-here"
         run: |
           go test ./... -v -race -coverprofile=coverage.out
 
@@ -212,8 +210,9 @@ jobs:
             HEALTHY=false
             for i in $(seq 1 30); do
               STATUS=$(docker inspect --format='{{json .State.Health.Status}}' $TARGET_CONTAINER 2>/dev/null || echo '"unknown"')
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$TARGET_PORT/health || echo "000")
-              if [ "$STATUS" = '"healthy"' ] || [ "$HTTP_CODE" = "200" ]; then
+              HTTP_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:$TARGET_PORT/ready || echo "000")
+              # /ready answers 200 only when PostgreSQL and Redis respond.
+              if [ "$HTTP_CODE" = "200" ]; then
                 HEALTHY=true
                 echo "$TARGET_CONTAINER is healthy (HTTP $HTTP_CODE, Docker status $STATUS)!"
                 break
