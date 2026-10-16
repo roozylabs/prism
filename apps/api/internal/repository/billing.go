@@ -84,11 +84,11 @@ func (r *BillingRepository) GetActiveSubscription(ctx context.Context, orgID str
 
 func (r *BillingRepository) ListInvoices(ctx context.Context, orgID string) ([]models.BillingInvoice, error) {
 	query := `
-		SELECT id, organization_id, invoice_number, amount_due_usd, amount_paid_usd,
+		SELECT id, org_id, invoice_number, amount_due_usd, amount_paid_usd,
 		       currency, status, line_items_json, period_start, period_end,
 		       due_date, paid_at, created_at, updated_at
 		FROM billing_invoices
-		WHERE organization_id = $1
+		WHERE org_id = $1
 		ORDER BY created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, orgID)
@@ -128,11 +128,11 @@ func (r *BillingRepository) ListInvoices(ctx context.Context, orgID string) ([]m
 
 func (r *BillingRepository) GetDailyUsage(ctx context.Context, orgID string) ([]models.DailyUsageAggregate, error) {
 	query := `
-		SELECT id, organization_id, usage_date, provider_slug, model_slug,
+		SELECT id, org_id, usage_date, provider_slug, model_slug,
 		       request_count, prompt_tokens, completion_tokens,
 		       provider_cost_usd, markup_usd, customer_cost_usd, created_at
 		FROM daily_usage_aggregates
-		WHERE organization_id = $1
+		WHERE org_id = $1
 		ORDER BY usage_date DESC, provider_slug ASC
 	`
 	rows, err := r.db.QueryContext(ctx, query, orgID)

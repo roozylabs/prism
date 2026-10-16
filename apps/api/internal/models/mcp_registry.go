@@ -8,7 +8,7 @@ import (
 type MCPRegistryServer struct {
 	ID             string          `json:"id" db:"id"`
 	UserID         string          `json:"userId" db:"user_id"`
-	OrganizationID *string         `json:"organizationId,omitempty" db:"organization_id"`
+	OrganizationID *string         `json:"organizationId,omitempty" db:"org_id"`
 	Name           string          `json:"name" db:"name"`
 	Slug           string          `json:"slug" db:"slug"`
 	Description    string          `json:"description" db:"description"`

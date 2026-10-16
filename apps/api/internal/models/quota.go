@@ -4,7 +4,7 @@ import "time"
 
 type TenantQuota struct {
 	ID                   string    `json:"id" db:"id"`
-	OrganizationID       *string   `json:"organizationId,omitempty" db:"organization_id"`
+	OrganizationID       *string   `json:"organizationId,omitempty" db:"org_id"`
 	WorkspaceID          *string   `json:"workspaceId,omitempty" db:"workspace_id"`
 	ProjectID            *string   `json:"projectId,omitempty" db:"project_id"`
 	TargetType           string    `json:"targetType" db:"target_type"` // "organization" | "workspace" | "project", derived from the ids above

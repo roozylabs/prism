@@ -110,7 +110,7 @@ type rowQuerier interface {
 func resolveRole(ctx context.Context, q rowQuerier, orgID, role string) (id, slug string, err error) {
 	err = q.QueryRowContext(ctx,
 		`SELECT id::text, slug FROM roles
-		 WHERE (slug = $1 OR id::text = $1) AND (is_system OR organization_id = $2)
+		 WHERE (slug = $1 OR id::text = $1) AND (is_system OR org_id = $2)
 		 ORDER BY is_system DESC
 		 LIMIT 1`,
 		role, orgID,
@@ -382,9 +382,9 @@ func (r *RBACRepository) RemoveWorkspaceMember(ctx context.Context, wsID, userID
 
 func (r *RBACRepository) ListRoles(ctx context.Context, orgID string) ([]models.Role, error) {
 	query := `
-		SELECT id, organization_id, name, slug, description, is_system, created_at, updated_at
+		SELECT id, org_id, name, slug, description, is_system, created_at, updated_at
 		FROM roles
-		WHERE is_system = true OR organization_id = $1
+		WHERE is_system = true OR org_id = $1
 		ORDER BY is_system DESC, name ASC
 	`
 	rows, err := r.db.QueryContext(ctx, query, orgID)
@@ -425,7 +425,7 @@ func (r *RBACRepository) CreateCustomRole(ctx context.Context, role *models.Role
 	defer func() { _ = tx.Rollback() }()
 
 	queryRole := `
-		INSERT INTO roles (id, organization_id, name, slug, description, is_system, created_at, updated_at)
+		INSERT INTO roles (id, org_id, name, slug, description, is_system, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, false, $6, $7)
 	`
 	if _, err := tx.ExecContext(ctx, queryRole, role.ID, role.OrganizationID, role.Name, role.Slug, role.Description, role.CreatedAt, role.UpdatedAt); err != nil {
@@ -468,7 +468,7 @@ func (r *RBACRepository) CreateInvite(ctx context.Context, invite *models.Member
 	invite.RoleID = roleID
 
 	query := `
-		INSERT INTO member_invites (id, organization_id, role_id, email, token, status, expires_at, created_at)
+		INSERT INTO member_invites (id, org_id, role_id, email, token, status, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	_, err = r.db.ExecContext(ctx, query, invite.ID, invite.OrganizationID, invite.RoleID, invite.Email, invite.Token, invite.Status, invite.ExpiresAt, invite.CreatedAt)
@@ -480,7 +480,7 @@ func (r *RBACRepository) CreateInvite(ctx context.Context, invite *models.Member
 
 func (r *RBACRepository) GetInviteByToken(ctx context.Context, token string) (*models.MemberInvite, error) {
 	query := `
-		SELECT id, organization_id, role_id, email, token, status, expires_at, created_at
+		SELECT id, org_id, role_id, email, token, status, expires_at, created_at
 		FROM member_invites
 		WHERE token = $1 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
 	`

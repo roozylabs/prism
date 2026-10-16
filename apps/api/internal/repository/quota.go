@@ -23,7 +23,7 @@ func NewQuotaRepository(db *sql.DB) *QuotaRepository {
 // the organization: an unknown type, or a workspace or project it does not own.
 var ErrQuotaTargetNotFound = errors.New("quota target not found in organization")
 
-const quotaColumns = `id, organization_id, workspace_id, project_id, target_type, target_id,
+const quotaColumns = `id, org_id, workspace_id, project_id, target_type, target_id,
 	monthly_spend_limit_usd, daily_spend_limit_usd, daily_request_limit,
 	max_concurrent_streams, created_at, updated_at`
 
@@ -51,7 +51,7 @@ func nullStringPtr(s sql.NullString) *string {
 
 func (r *QuotaRepository) ListQuotas(ctx context.Context, orgID string) ([]models.TenantQuota, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+quotaColumns+` FROM tenant_quotas WHERE organization_id = $1 ORDER BY target_type ASC, target_id ASC`, orgID)
+		`SELECT `+quotaColumns+` FROM tenant_quotas WHERE org_id = $1 ORDER BY target_type ASC, target_id ASC`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list tenant quotas: %w", err)
 	}
@@ -143,7 +143,7 @@ func (r *QuotaRepository) UpsertQuota(ctx context.Context, q *models.TenantQuota
 
 	return r.db.QueryRowContext(ctx, `
 		INSERT INTO tenant_quotas (
-			id, organization_id, workspace_id, project_id,
+			id, org_id, workspace_id, project_id,
 			monthly_spend_limit_usd, daily_spend_limit_usd, daily_request_limit,
 			max_concurrent_streams, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)

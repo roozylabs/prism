@@ -4,7 +4,7 @@ import "time"
 
 type BillingInvoice struct {
 	ID             string     `json:"id" db:"id"`
-	OrganizationID string     `json:"organizationId" db:"organization_id"`
+	OrganizationID string     `json:"organizationId" db:"org_id"`
 	InvoiceNumber  string     `json:"invoiceNumber" db:"invoice_number"`
 	AmountDueUSD   float64    `json:"amountDueUsd" db:"amount_due_usd"`
 	AmountPaidUSD  float64    `json:"amountPaidUsd" db:"amount_paid_usd"`
@@ -21,7 +21,7 @@ type BillingInvoice struct {
 
 type DailyUsageAggregate struct {
 	ID              string    `json:"id" db:"id"`
-	OrganizationID  string    `json:"organizationId" db:"organization_id"`
+	OrganizationID  string    `json:"organizationId" db:"org_id"`
 	UsageDate       string    `json:"usageDate" db:"usage_date"`
 	ProviderSlug    string    `json:"providerSlug" db:"provider_slug"`
 	ModelSlug       string    `json:"modelSlug" db:"model_slug"`
