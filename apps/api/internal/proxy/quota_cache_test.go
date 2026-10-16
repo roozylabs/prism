@@ -130,3 +130,43 @@ func TestCachedQuotaEvaluator_SweepDropsExpiredEntries(t *testing.T) {
 		t.Error("live entry should be kept")
 	}
 }
+
+type stuckQuotaSource struct{ sawDeadline chan bool }
+
+func (s stuckQuotaSource) EvaluateQuota(ctx context.Context, _, _ string) (*models.QuotaCheckResult, error) {
+	_, ok := ctx.Deadline()
+	s.sawDeadline <- ok
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestCachedQuotaEvaluator_StuckEvaluationDoesNotHoldCallers(t *testing.T) {
+	src := stuckQuotaSource{sawDeadline: make(chan bool, 1)}
+	c := NewCachedQuotaEvaluator(src, 10*time.Second)
+	c.timeout = 50 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := c.EvaluateQuota(ctx, "organization", "org_a"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the caller's deadline", err)
+	}
+	if waited := time.Since(start); waited > time.Second {
+		t.Fatalf("caller waited %v for a stuck evaluation", waited)
+	}
+	if !<-src.sawDeadline {
+		t.Fatal("the shared evaluation runs without a deadline")
+	}
+
+	// The evaluation itself gives up after its own timeout, so a later caller
+	// starts a fresh one instead of joining the stuck one forever.
+	time.Sleep(100 * time.Millisecond)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
+	defer cancel2()
+	if _, err := c.EvaluateQuota(ctx2, "organization", "org_a"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second caller: err = %v", err)
+	}
+	if !<-src.sawDeadline {
+		t.Fatal("no fresh evaluation for the second caller")
+	}
+}

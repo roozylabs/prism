@@ -94,3 +94,21 @@ func TestAgentPolicyMiddleware_ValidAgentSetsContext(t *testing.T) {
 	assert.NotNil(t, retrievedAgent)
 	assert.Equal(t, []string{"prism-auto", "claude-sonnet-3-5"}, retrievedAgent.AllowedModels)
 }
+
+func TestAgentPolicyMiddleware_EveryAgentHeaderIsResolved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, header := range []string{"X-Prism-Agent-ID", "X-Prism-Agent-Name", "X-Agent-Name"} {
+		r := gin.New()
+		// The agent does not exist, so naming it in any header must stop the
+		// request rather than reach the handler unchecked.
+		r.Use(AgentPolicyMiddleware(&mockAgentFinder{}))
+		r.GET("/test", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+		req, _ := http.NewRequest("GET", "/test", nil)
+		req.Header.Set(header, "ghost-agent")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code, header)
+	}
+}

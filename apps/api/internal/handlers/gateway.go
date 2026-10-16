@@ -198,13 +198,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	clientIP := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
 	clientApp := parseClientApp(userAgent)
-	agentID := c.GetHeader("X-Prism-Agent-ID")
-	if agentID == "" {
-		agentID = c.GetHeader("X-Agent-Name")
-	}
-	agentName := c.GetHeader("X-Prism-Agent-Name")
-	if agentName == "" {
-		agentName = c.GetHeader("X-Agent-Name")
+	// The agent is the one the gateway resolved from the request headers;
+	// governance must judge that agent, not a name the client also sent.
+	agent := middleware.AgentFromContext(c)
+	var agentID, agentName string
+	if agent != nil {
+		agentID, agentName = agent.ID, agent.Name
 	}
 	userRole, err := h.resolveMemberRole(c.Request.Context(), gatewayKey, tenantCtx)
 	if err != nil {
@@ -213,7 +212,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Behind-the-scenes Agent System Persona & Tool/Resource/MCP Rules Injection
-	h.applyAgentBoundary(c.Request.Context(), &req, agentID, gatewayKey, c)
+	h.applyAgentBoundary(c.Request.Context(), &req, agent, gatewayKey)
 
 	// Delegate Pipeline Execution to ExecutionOrchestrator
 	if h.orchestrator != nil {
@@ -421,7 +420,20 @@ func (h *GatewayHandler) SandboxChatCompletions(c *gin.Context) {
 		return
 	}
 	c.Set("gatewayKey", gatewayKey)
+	// Sandbox routes do not run the gateway middleware chain.
+	if !middleware.ResolveAgent(c, h.agentFinder()) {
+		return
+	}
 	h.ChatCompletions(c)
+}
+
+// agentFinder returns the agent repository, or nil when none is configured,
+// without wrapping a nil pointer in a non-nil interface.
+func (h *GatewayHandler) agentFinder() middleware.AgentFinder {
+	if h.agentRepo == nil {
+		return nil
+	}
+	return h.agentRepo
 }
 
 func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
@@ -479,13 +491,10 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 	// Job IDs are random so they cannot be predicted from the client-supplied X-Request-ID.
 	jobID := "job_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
-	agentID := c.GetHeader("X-Prism-Agent-ID")
-	if agentID == "" {
-		agentID = c.GetHeader("X-Agent-Name")
-	}
-	agentName := c.GetHeader("X-Prism-Agent-Name")
-	if agentName == "" {
-		agentName = c.GetHeader("X-Agent-Name")
+	agent := middleware.AgentFromContext(c)
+	var agentID, agentName string
+	if agent != nil {
+		agentID, agentName = agent.ID, agent.Name
 	}
 	userRole, err := h.resolveMemberRole(c.Request.Context(), keyObj, tenantCtx)
 	if err != nil {
@@ -497,10 +506,7 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 	clientApp := parseClientApp(userAgent)
 
 	// Behind-the-scenes Agent System Persona & Tool/Resource/MCP Rules Injection
-	agentObj := h.applyAgentBoundary(c.Request.Context(), &req, agentID, keyObj, c)
-	if agentObj != nil && agentName == "" {
-		agentName = agentObj.DisplayName
-	}
+	h.applyAgentBoundary(c.Request.Context(), &req, agent, keyObj)
 
 	job := &queue.AsyncJob{
 		JobID:          jobID,
@@ -547,6 +553,10 @@ func (h *GatewayHandler) AsyncSandboxChatCompletions(c *gin.Context) {
 		return
 	}
 	c.Set("gatewayKey", gatewayKey)
+	// Sandbox routes do not run the gateway middleware chain.
+	if !middleware.ResolveAgent(c, h.agentFinder()) {
+		return
+	}
 	h.AsyncChatCompletions(c)
 }
 
@@ -724,36 +734,11 @@ func parseClientApp(ua string) string {
 	return "Custom App"
 }
 
-func (h *GatewayHandler) applyAgentBoundary(ctx context.Context, req *proxy.ProxyRequest, agentID string, gatewayKey *models.GatewayAPIKey, c *gin.Context) *models.Agent {
-	if agentID == "" && c != nil {
-		if agentObj, ok := c.Get("agentObject"); ok {
-			if ag, isAgent := agentObj.(*models.Agent); isAgent && ag != nil {
-				agentID = ag.ID
-			}
-		}
-	}
-	if agentID == "" || h.agentRepo == nil {
-		return nil
-	}
-
-	var agent *models.Agent
-	if c != nil {
-		if agentObj, ok := c.Get("agentObject"); ok {
-			if ag, isAgent := agentObj.(*models.Agent); isAgent && ag != nil {
-				agent = ag
-			}
-		}
-	}
-	if agent == nil && gatewayKey != nil {
-		agent, _ = h.agentRepo.FindForUser(ctx, gatewayKey.UserID, agentID)
-	}
-
+// applyAgentBoundary adds the agent's system prompt and rules to a request
+// that does not carry its own system message.
+func (h *GatewayHandler) applyAgentBoundary(ctx context.Context, req *proxy.ProxyRequest, agent *models.Agent, gatewayKey *models.GatewayAPIKey) {
 	if agent == nil {
-		return nil
-	}
-
-	if c != nil {
-		c.Set("agentObject", agent)
+		return
 	}
 
 	hasSystem := false
@@ -839,5 +824,4 @@ func (h *GatewayHandler) applyAgentBoundary(ctx context.Context, req *proxy.Prox
 		}
 	}
 
-	return agent
 }

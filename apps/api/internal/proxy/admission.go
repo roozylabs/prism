@@ -29,10 +29,13 @@ type AdmissionResult struct {
 }
 
 type AdmissionRequest struct {
-	UserID        string
-	Role          string
-	AgentID       string
-	AgentName     string
+	UserID    string
+	Role      string
+	AgentID   string
+	AgentName string
+	// Agent is the agent the gateway already resolved for this request. When
+	// it is nil but AgentID or AgentName is set, admission resolves it.
+	Agent         *models.Agent
 	ModelSlug     string
 	ToolName      string
 	ResourceName  string
@@ -118,36 +121,8 @@ func (a *AdmissionController) Evaluate(ctx context.Context, req AdmissionRequest
 	}
 
 	// 2. Agent Governance Check (Model & Tool access)
-	if a.agentGovernance != nil && req.AgentName != "" {
-		if req.ModelSlug != "" {
-			agRes, err := a.agentGovernance.ValidateAgentModelAccess(ctx, req.UserID, req.AgentName, req.ModelSlug)
-			if err != nil {
-				return nil, fmt.Errorf("agent model governance: %w", err)
-			}
-			if !agRes.ModelAllowed {
-				return &AdmissionResult{
-					Decision:   AdmissionDeny,
-					HTTPStatus: http.StatusForbidden,
-					ErrorCode:  "agent_model_denied",
-					Reason:     agRes.Reason,
-				}, nil
-			}
-		}
-
-		if req.ToolName != "" {
-			agToolRes, err := a.agentGovernance.ValidateAgentToolAccess(ctx, req.UserID, req.AgentName, req.ToolName)
-			if err != nil {
-				return nil, fmt.Errorf("agent tool governance: %w", err)
-			}
-			if !agToolRes.ToolAllowed {
-				return &AdmissionResult{
-					Decision:   AdmissionDeny,
-					HTTPStatus: http.StatusForbidden,
-					ErrorCode:  "agent_tool_denied",
-					Reason:     agToolRes.Reason,
-				}, nil
-			}
-		}
+	if res, err := a.evaluateAgent(ctx, req); err != nil || res != nil {
+		return res, err
 	}
 
 	// 3. Tenant Quota Check (Organization & Workspace quotas)
@@ -177,7 +152,7 @@ func (a *AdmissionController) Evaluate(ctx context.Context, req AdmissionRequest
 					Decision:     AdmissionDeny,
 					HTTPStatus:   http.StatusTooManyRequests,
 					ErrorCode:    "budget_exceeded_error",
-					Reason:       fmt.Sprintf("Monthly or daily budget limit ($%.2f) exceeded", budgetStatus.Budget.MonthlyLimit),
+					Reason:       budgetExceededReason(budgetStatus),
 					BudgetStatus: budgetStatus.Status,
 				}, nil
 			}
@@ -207,4 +182,61 @@ func (a *AdmissionController) Evaluate(ctx context.Context, req AdmissionRequest
 		HTTPStatus:   http.StatusOK,
 		BudgetStatus: budgetStatusStr,
 	}, nil
+}
+
+// evaluateAgent denies a request whose agent may not use the model or tool,
+// or whose named agent does not exist. It returns nil when the request may
+// continue.
+func (a *AdmissionController) evaluateAgent(ctx context.Context, req AdmissionRequest) (*AdmissionResult, error) {
+	ref := req.AgentID
+	if ref == "" {
+		ref = req.AgentName
+	}
+	if req.Agent == nil && ref == "" {
+		return nil, nil
+	}
+
+	agent := req.Agent
+	if agent == nil {
+		if a.agentGovernance == nil {
+			return nil, nil
+		}
+		found, reason, err := a.agentGovernance.resolve(ctx, req.UserID, ref)
+		if err != nil {
+			return nil, fmt.Errorf("agent governance: %w", err)
+		}
+		if found == nil {
+			return agentDenied("agent_not_found", reason), nil
+		}
+		agent = found
+	}
+
+	if req.ModelSlug != "" {
+		if res := CheckAgentModelAccess(agent, req.ModelSlug); !res.ModelAllowed {
+			return agentDenied("agent_model_denied", res.Reason), nil
+		}
+	}
+	if req.ToolName != "" {
+		if res := CheckAgentToolAccess(agent, req.ToolName); !res.ToolAllowed {
+			return agentDenied("agent_tool_denied", res.Reason), nil
+		}
+	}
+	return nil, nil
+}
+
+func agentDenied(code, reason string) *AdmissionResult {
+	return &AdmissionResult{
+		Decision:   AdmissionDeny,
+		HTTPStatus: http.StatusForbidden,
+		ErrorCode:  code,
+		Reason:     reason,
+	}
+}
+
+func budgetExceededReason(st *models.BudgetStatus) string {
+	limit := st.Budget.MonthlyLimit
+	if st.LimitPeriod == "daily" {
+		limit = st.Budget.DailyLimit
+	}
+	return fmt.Sprintf("%s budget limit ($%.2f) of %q exceeded", st.LimitPeriod, limit, st.Budget.Name)
 }

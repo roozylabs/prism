@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	goredislib "github.com/redis/go-redis/v9"
-	"github.com/roozylabs/prism/internal/database"
 	"github.com/roozylabs/prism/internal/models"
 	goredis "github.com/roozylabs/prism/internal/redis"
 	"github.com/roozylabs/prism/internal/repository"
@@ -37,33 +35,12 @@ type failoverFixture struct {
 
 func newFailoverFixture(t *testing.T, credentials, maxRetries int, upstream http.HandlerFunc) *failoverFixture {
 	t.Helper()
-	base, redisURL := os.Getenv("DATABASE_URL"), os.Getenv("REDIS_URL")
-	if base == "" || redisURL == "" {
-		t.Skip("DATABASE_URL and REDIS_URL are required")
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		t.Skip("REDIS_URL is required")
 	}
-	admin, err := sql.Open("postgres", base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
-	if err := admin.Ping(); err != nil {
-		t.Skipf("postgres unavailable: %v", err)
-	}
+	db := migratedTestDB(t)
 	name := fmt.Sprintf("proxy_test_%d", time.Now().UnixNano())
-	if _, err := admin.Exec("CREATE DATABASE " + name); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)") })
-	u, _ := url.Parse(base)
-	u.Path = "/" + name
-	if err := database.RunMigrations(u.String(), "../../migrations"); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("postgres", u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
 
 	opts, err := goredislib.ParseURL(redisURL)
 	if err != nil {

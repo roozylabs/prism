@@ -22,14 +22,18 @@ const DefaultQuotaCacheTTL = 10 * time.Second
 // reached, and the cache is reset if that is not enough.
 const maxQuotaCacheEntries = 10000
 
+// DefaultQuotaEvalTimeout bounds one shared quota evaluation.
+const DefaultQuotaEvalTimeout = 5 * time.Second
+
 // CachedQuotaEvaluator caches quota evaluations per target for a short TTL,
 // so the gateway does not query spend from request_logs on every request.
 // Concurrent misses for the same target share one evaluation.
 type CachedQuotaEvaluator struct {
-	src   QuotaEvaluator
-	ttl   time.Duration
-	now   func() time.Time
-	group singleflight.Group
+	src     QuotaEvaluator
+	ttl     time.Duration
+	timeout time.Duration
+	now     func() time.Time
+	group   singleflight.Group
 
 	mu      sync.Mutex
 	entries map[string]quotaCacheEntry
@@ -41,7 +45,7 @@ type quotaCacheEntry struct {
 }
 
 func NewCachedQuotaEvaluator(src QuotaEvaluator, ttl time.Duration) *CachedQuotaEvaluator {
-	return &CachedQuotaEvaluator{src: src, ttl: ttl, now: time.Now, entries: make(map[string]quotaCacheEntry)}
+	return &CachedQuotaEvaluator{src: src, ttl: ttl, timeout: DefaultQuotaEvalTimeout, now: time.Now, entries: make(map[string]quotaCacheEntry)}
 }
 
 // EvaluateQuota returns the cached result for the target, evaluating it at
@@ -57,9 +61,11 @@ func (c *CachedQuotaEvaluator) EvaluateQuota(ctx context.Context, targetType, ta
 	}
 	c.mu.Unlock()
 
-	// One caller's cancellation must not fail the evaluation shared with others.
-	evalCtx := context.WithoutCancel(ctx)
-	v, err, _ := c.group.Do(key, func() (interface{}, error) {
+	// One caller's cancellation must not fail the evaluation shared with
+	// others, but a stuck query must not hold every caller either.
+	ch := c.group.DoChan(key, func() (interface{}, error) {
+		evalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.timeout)
+		defer cancel()
 		res, err := c.src.EvaluateQuota(evalCtx, targetType, targetID)
 		if err != nil {
 			return nil, err
@@ -72,10 +78,15 @@ func (c *CachedQuotaEvaluator) EvaluateQuota(ctx context.Context, targetType, ta
 		c.mu.Unlock()
 		return res, nil
 	})
-	if err != nil {
-		return nil, err
+	select {
+	case r := <-ch:
+		if r.Err != nil {
+			return nil, r.Err
+		}
+		return r.Val.(*models.QuotaCheckResult), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	return v.(*models.QuotaCheckResult), nil
 }
 
 func (c *CachedQuotaEvaluator) sweepLocked() {

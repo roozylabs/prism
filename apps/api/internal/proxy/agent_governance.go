@@ -10,8 +10,10 @@ import (
 	"github.com/roozylabs/prism/internal/models"
 )
 
+// AgentFinder resolves an agent id or name to one the caller may use: their
+// own, or a system agent.
 type AgentFinder interface {
-	FindByUserAndName(ctx context.Context, userID, name string) (*models.Agent, error)
+	FindForUser(ctx context.Context, userID, ref string) (*models.Agent, error)
 }
 
 type AgentGovernanceEngine struct {
@@ -22,106 +24,111 @@ func NewAgentGovernanceEngine(agents AgentFinder) *AgentGovernanceEngine {
 	return &AgentGovernanceEngine{agents: agents}
 }
 
-func (g *AgentGovernanceEngine) ValidateAgentModelAccess(ctx context.Context, userID, agentName, modelSlug string) (*models.AgentGovernanceCheckResult, error) {
-	if agentName == "" {
-		return &models.AgentGovernanceCheckResult{ModelAllowed: true}, nil
+// resolve looks the agent up for the user. A reference that matches no agent
+// the user may use yields a denial reason instead of an error.
+func (g *AgentGovernanceEngine) resolve(ctx context.Context, userID, ref string) (*models.Agent, string, error) {
+	ag, err := g.agents.FindForUser(ctx, userID, ref)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && ag == nil) {
+		return nil, fmt.Sprintf("agent %q not found", ref), nil
 	}
-
-	ag, err := g.agents.FindByUserAndName(ctx, userID, agentName)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") || strings.Contains(err.Error(), "not found") {
-			return &models.AgentGovernanceCheckResult{AgentName: agentName, ModelAllowed: true}, nil
-		}
-		return nil, fmt.Errorf("resolve agent %q: %w", agentName, err)
+		return nil, "", fmt.Errorf("resolve agent %q: %w", ref, err)
 	}
-	if !ag.Enabled {
-		return &models.AgentGovernanceCheckResult{
-			AgentName:    agentName,
-			ModelAllowed: false,
-			Reason:       fmt.Sprintf("agent %q is disabled", agentName),
-		}, nil
-	}
-
-	// 1. Evaluate explicit DENY rules first (DENY > ALLOW precedence)
-	for _, rule := range ag.AllowedModels {
-		if strings.HasPrefix(rule, "!") || strings.HasPrefix(rule, "-") || strings.HasPrefix(strings.ToLower(rule), "deny:") {
-			deniedTarget := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(rule, "!"), "-"), "deny:")
-			if strings.EqualFold(deniedTarget, modelSlug) {
-				return &models.AgentGovernanceCheckResult{
-					AgentName:    agentName,
-					ModelAllowed: false,
-					Reason:       fmt.Sprintf("model %q explicitly denied for agent %q", modelSlug, agentName),
-				}, nil
-			}
-		}
-	}
-
-	if len(ag.AllowedModels) == 0 || strings.EqualFold(modelSlug, "prism-auto") || strings.EqualFold(modelSlug, "auto") {
-		return &models.AgentGovernanceCheckResult{AgentName: agentName, ModelAllowed: true}, nil
-	}
-
-	// 2. Evaluate ALLOW rules
-	for _, allowed := range ag.AllowedModels {
-		if strings.EqualFold(allowed, modelSlug) || allowed == "*" {
-			return &models.AgentGovernanceCheckResult{AgentName: agentName, ModelAllowed: true}, nil
-		}
-	}
-
-	return &models.AgentGovernanceCheckResult{
-		AgentName:    agentName,
-		ModelAllowed: false,
-		Reason:       fmt.Sprintf("model %q is not permitted for agent %q", modelSlug, agentName),
-	}, nil
+	return ag, "", nil
 }
 
-func (g *AgentGovernanceEngine) ValidateAgentToolAccess(ctx context.Context, userID, agentName, toolName string) (*models.AgentGovernanceCheckResult, error) {
-	if agentName == "" {
+// ValidateAgentModelAccess resolves the agent by id or name and checks it may
+// use the model. An unknown agent is denied.
+func (g *AgentGovernanceEngine) ValidateAgentModelAccess(ctx context.Context, userID, agentRef, modelSlug string) (*models.AgentGovernanceCheckResult, error) {
+	if agentRef == "" {
+		return &models.AgentGovernanceCheckResult{ModelAllowed: true}, nil
+	}
+	ag, reason, err := g.resolve(ctx, userID, agentRef)
+	if err != nil {
+		return nil, err
+	}
+	if ag == nil {
+		return &models.AgentGovernanceCheckResult{AgentName: agentRef, Reason: reason}, nil
+	}
+	return CheckAgentModelAccess(ag, modelSlug), nil
+}
+
+// ValidateAgentToolAccess resolves the agent by id or name and checks it may
+// use the tool. An unknown agent is denied.
+func (g *AgentGovernanceEngine) ValidateAgentToolAccess(ctx context.Context, userID, agentRef, toolName string) (*models.AgentGovernanceCheckResult, error) {
+	if agentRef == "" {
 		return &models.AgentGovernanceCheckResult{ToolAllowed: true}, nil
 	}
-
-	ag, err := g.agents.FindByUserAndName(ctx, userID, agentName)
+	ag, reason, err := g.resolve(ctx, userID, agentRef)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") || strings.Contains(err.Error(), "not found") {
-			return &models.AgentGovernanceCheckResult{AgentName: agentName, ToolAllowed: true}, nil
-		}
-		return nil, fmt.Errorf("resolve agent %q: %w", agentName, err)
+		return nil, err
 	}
-	if !ag.Enabled {
-		return &models.AgentGovernanceCheckResult{
-			AgentName:   agentName,
-			ToolAllowed: false,
-			Reason:      fmt.Sprintf("agent %q is disabled", agentName),
-		}, nil
+	if ag == nil {
+		return &models.AgentGovernanceCheckResult{AgentName: agentRef, Reason: reason}, nil
 	}
+	return CheckAgentToolAccess(ag, toolName), nil
+}
 
-	// 1. Evaluate explicit DENY rules first (DENY > ALLOW precedence)
-	for _, rule := range ag.AllowedTools {
+// CheckAgentModelAccess applies the agent's allowed_models rules: deny rules
+// win, an empty list or an auto-routed model allows, otherwise the model must
+// be listed or the list must contain "*".
+func CheckAgentModelAccess(ag *models.Agent, modelSlug string) *models.AgentGovernanceCheckResult {
+	if !ag.Enabled {
+		return &models.AgentGovernanceCheckResult{AgentName: ag.Name, Reason: fmt.Sprintf("agent %q is disabled", ag.Name)}
+	}
+	if isDenied(ag.AllowedModels, modelSlug) {
+		return &models.AgentGovernanceCheckResult{
+			AgentName: ag.Name,
+			Reason:    fmt.Sprintf("model %q explicitly denied for agent %q", modelSlug, ag.Name),
+		}
+	}
+	if len(ag.AllowedModels) == 0 || strings.EqualFold(modelSlug, "prism-auto") || strings.EqualFold(modelSlug, "auto") || isAllowed(ag.AllowedModels, modelSlug) {
+		return &models.AgentGovernanceCheckResult{AgentName: ag.Name, ModelAllowed: true}
+	}
+	return &models.AgentGovernanceCheckResult{
+		AgentName: ag.Name,
+		Reason:    fmt.Sprintf("model %q is not permitted for agent %q", modelSlug, ag.Name),
+	}
+}
+
+// CheckAgentToolAccess applies the agent's allowed_tools rules the same way.
+func CheckAgentToolAccess(ag *models.Agent, toolName string) *models.AgentGovernanceCheckResult {
+	if !ag.Enabled {
+		return &models.AgentGovernanceCheckResult{AgentName: ag.Name, Reason: fmt.Sprintf("agent %q is disabled", ag.Name)}
+	}
+	if isDenied(ag.AllowedTools, toolName) {
+		return &models.AgentGovernanceCheckResult{
+			AgentName: ag.Name,
+			Reason:    fmt.Sprintf("tool %q explicitly denied for agent %q", toolName, ag.Name),
+		}
+	}
+	if len(ag.AllowedTools) == 0 || isAllowed(ag.AllowedTools, toolName) {
+		return &models.AgentGovernanceCheckResult{AgentName: ag.Name, ToolAllowed: true}
+	}
+	return &models.AgentGovernanceCheckResult{
+		AgentName: ag.Name,
+		Reason:    fmt.Sprintf("tool %q is not permitted for agent %q", toolName, ag.Name),
+	}
+}
+
+// isDenied reports whether a "!name", "-name" or "deny:name" rule matches.
+func isDenied(rules []string, target string) bool {
+	for _, rule := range rules {
 		if strings.HasPrefix(rule, "!") || strings.HasPrefix(rule, "-") || strings.HasPrefix(strings.ToLower(rule), "deny:") {
-			deniedTarget := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(rule, "!"), "-"), "deny:")
-			if strings.EqualFold(deniedTarget, toolName) {
-				return &models.AgentGovernanceCheckResult{
-					AgentName:   agentName,
-					ToolAllowed: false,
-					Reason:      fmt.Sprintf("tool %q explicitly denied for agent %q", toolName, agentName),
-				}, nil
+			denied := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(rule, "!"), "-"), "deny:")
+			if strings.EqualFold(denied, target) {
+				return true
 			}
 		}
 	}
+	return false
+}
 
-	if len(ag.AllowedTools) == 0 {
-		return &models.AgentGovernanceCheckResult{AgentName: agentName, ToolAllowed: true}, nil
-	}
-
-	// 2. Evaluate ALLOW rules
-	for _, allowed := range ag.AllowedTools {
-		if strings.EqualFold(allowed, toolName) || allowed == "*" {
-			return &models.AgentGovernanceCheckResult{AgentName: agentName, ToolAllowed: true}, nil
+func isAllowed(rules []string, target string) bool {
+	for _, rule := range rules {
+		if rule == "*" || strings.EqualFold(rule, target) {
+			return true
 		}
 	}
-
-	return &models.AgentGovernanceCheckResult{
-		AgentName:   agentName,
-		ToolAllowed: false,
-		Reason:      fmt.Sprintf("tool %q is not permitted for agent %q", toolName, agentName),
-	}, nil
+	return false
 }
