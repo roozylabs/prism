@@ -408,9 +408,16 @@ func (r *CredentialRepository) RecoverExhausted(ctx context.Context, credentialI
 	return n > 0, err
 }
 
+// UpdateHealthAndStatus records a computed health score and status. A
+// credential the provider rejected stays invalid until someone fixes it
+// (ResetErrorCount); a health recomputation must not bring it back.
 func (r *CredentialRepository) UpdateHealthAndStatus(ctx context.Context, credentialID string, healthScore float64, status string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE credentials SET health_score = $1, status = $2, updated_at = NOW() WHERE id = $3`,
+		`UPDATE credentials
+		 SET health_score = $1,
+		     status = CASE WHEN status = 'invalid' THEN status ELSE $2 END,
+		     updated_at = NOW()
+		 WHERE id = $3`,
 		healthScore, status, credentialID)
 	return err
 }

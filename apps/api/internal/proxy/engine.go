@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -168,6 +169,48 @@ func (r *ProxyRequest) UnmarshalJSON(data []byte) error {
 // canceled) before a response was produced. It is not an upstream failure, so
 // no credential, model or provider is penalized for it.
 var ErrClientCanceled = errors.New("client canceled the request")
+
+// ErrBadUpstreamResponse means the provider answered 2xx with a body that
+// could not be parsed. The call already happened and may be billed, so it is
+// not retried on another credential.
+var ErrBadUpstreamResponse = errors.New("invalid upstream response")
+
+// maxAttempts is how many upstream calls one request may make across all of
+// its routes: the first try plus MAX_RETRIES.
+func (e *Engine) maxAttempts() int {
+	if e.maxRetries < 0 {
+		return 1
+	}
+	return e.maxRetries + 1
+}
+
+// forbiddenCooldownSeconds is how long a credential rests after a 403 that
+// is not about quota. A 403 usually concerns one model, region or project,
+// so the key stays usable for everything else afterwards.
+const forbiddenCooldownSeconds = 300
+
+type authFailure int
+
+const (
+	authFailureQuota     authFailure = iota // quota or rate limit reported as 401/403
+	authFailureForbidden                    // 403: not allowed for this request
+	authFailureInvalid                      // 401: the key itself is rejected
+)
+
+// classifyAuthFailure decides what a 401 or 403 from upstream says about the
+// credential.
+func classifyAuthFailure(status int, body string) authFailure {
+	lower := strings.ToLower(body)
+	for _, hint := range []string{"quota", "limit", "exhausted", "too many", "resource_exhausted"} {
+		if strings.Contains(lower, hint) {
+			return authFailureQuota
+		}
+	}
+	if status == http.StatusForbidden {
+		return authFailureForbidden
+	}
+	return authFailureInvalid
+}
 
 // sleepCtx waits for d, returning early if ctx is done.
 func sleepCtx(ctx context.Context, d time.Duration) {
@@ -370,9 +413,13 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 	var attempts []AttemptRecord
 	var lastAttemptStatus int
 
+	upstreamCalls := 0
 	for i, route := range routes {
 		if ctx.Err() != nil {
 			return nil, nil, ErrClientCanceled
+		}
+		if upstreamCalls >= e.maxAttempts() {
+			break
 		}
 		if i > 0 {
 			retryCount++
@@ -443,6 +490,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		}
 
 		attemptStart := time.Now()
+		upstreamCalls++
 		httpResp, err := e.client.Do(httpReq)
 		if err != nil {
 			release()
@@ -500,11 +548,11 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			continue
 		}
 
-		// 401/403 → check if quota/rate limit error vs invalid key
+		// 401/403 → quota, a request this key may not make, or a rejected key
 		if httpResp.StatusCode == http.StatusUnauthorized || httpResp.StatusCode == http.StatusForbidden {
 			bodyStr := string(body)
-			bodyLower := strings.ToLower(bodyStr)
-			if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "limit") || strings.Contains(bodyLower, "exhausted") || strings.Contains(bodyLower, "too many") || strings.Contains(bodyLower, "resource_exhausted") {
+			switch classifyAuthFailure(httpResp.StatusCode, bodyStr) {
+			case authFailureQuota:
 				retryAfter := determineCooldownDuration(httpResp.Header, bodyStr)
 				e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 				_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, retryAfter)
@@ -514,11 +562,14 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 				lastAttemptStatus = httpResp.StatusCode
 				attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
 				continue
+			case authFailureForbidden:
+				_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, forbiddenCooldownSeconds)
+				RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventCooldown, route.Credential.ID, route.Credential.ProviderID)
+				go e.syncCredentialHealth(context.Background(), route.Credential, true, false)
+			case authFailureInvalid:
+				_ = e.creds.UpdateStatus(ctx, route.Credential.ID, models.CredentialStatusInvalid)
+				RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventFailure, route.Credential.ID, route.Credential.ProviderID)
 			}
-
-			_ = e.creds.UpdateStatus(ctx, route.Credential.ID, "invalid")
-			RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventFailure, route.Credential.ID, route.Credential.ProviderID)
-			go e.syncCredentialHealth(context.Background(), route.Credential, false, false)
 			lastErr = fmt.Errorf("credential %s returned %d", route.Credential.ID, httpResp.StatusCode)
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
@@ -570,8 +621,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 
 		resp, err := route.Adapter.ParseResponse(bytes.NewReader(body))
 		if err != nil {
-			lastErr = fmt.Errorf("parse response: %w", err)
-			continue
+			return nil, nil, fmt.Errorf("%w from %s: %v", ErrBadUpstreamResponse, route.Provider.Type, err)
 		}
 
 		if resp.Usage.TotalTokens == 0 {
@@ -726,9 +776,13 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 	var attempts []AttemptRecord
 	var lastAttemptStatus int
 
+	upstreamCalls := 0
 	for i, route := range routes {
 		if ctx.Err() != nil {
 			return nil, ErrClientCanceled
+		}
+		if upstreamCalls >= e.maxAttempts() {
+			break
 		}
 		if i > 0 {
 			retryCount++
@@ -799,6 +853,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		}
 
 		attemptStart := time.Now()
+		upstreamCalls++
 		httpResp, err := e.client.Do(httpReq)
 		if err != nil {
 			release()
@@ -851,8 +906,8 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			_ = httpResp.Body.Close()
 			release()
 			bodyStr := string(bodyBytes)
-			bodyLower := strings.ToLower(bodyStr)
-			if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "limit") || strings.Contains(bodyLower, "exhausted") || strings.Contains(bodyLower, "too many") || strings.Contains(bodyLower, "resource_exhausted") {
+			switch classifyAuthFailure(httpResp.StatusCode, bodyStr) {
+			case authFailureQuota:
 				retryAfter := determineCooldownDuration(httpResp.Header, bodyStr)
 				e.extractAndSaveQuota(c.Request.Context(), route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 				_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, retryAfter)
@@ -861,10 +916,13 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				lastAttemptStatus = httpResp.StatusCode
 				attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
 				continue
+			case authFailureForbidden:
+				_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, forbiddenCooldownSeconds)
+				RecordCredentialEventTelemetry(c.Request.Context(), telemetry.CredentialEventCooldown, route.Credential.ID, route.Credential.ProviderID)
+			case authFailureInvalid:
+				_ = e.creds.UpdateStatus(c.Request.Context(), route.Credential.ID, models.CredentialStatusInvalid)
+				RecordCredentialEventTelemetry(c.Request.Context(), telemetry.CredentialEventFailure, route.Credential.ID, route.Credential.ProviderID)
 			}
-
-			_ = e.creds.UpdateStatus(c.Request.Context(), route.Credential.ID, "invalid")
-			RecordCredentialEventTelemetry(c.Request.Context(), telemetry.CredentialEventFailure, route.Credential.ID, route.Credential.ProviderID)
 			lastErr = fmt.Errorf("credential %s returned %d", route.Credential.ID, httpResp.StatusCode)
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
@@ -917,10 +975,15 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		_ = e.creds.IncrementUsage(c.Request.Context(), route.Credential.ID)
 		_ = e.creds.UpdateStatus(c.Request.Context(), route.Credential.ID, "active")
 		e.extractAndSaveQuota(c.Request.Context(), route.Credential, httpResp.Header, false, 0, "")
-		defer func() {
-			_ = httpResp.Body.Close()
+		// The body and the provider slot belong to this attempt. They are
+		// freed before failing over to the next route, and at the latest
+		// when the request ends.
+		resp := httpResp
+		endAttempt := sync.OnceFunc(func() {
+			_ = resp.Body.Close()
 			release()
-		}()
+		})
+		defer endAttempt()
 
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache, no-transform")
@@ -1023,9 +1086,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				log.Printf("stream pre-token error, retrying next route: %v", err)
 				lastErr = fmt.Errorf("stream interrupted before first token: %w", err)
 				e.recordModelFailure(route.Model.Slug, attemptStart)
-				if httpResp.StatusCode >= 429 {
-					_ = e.cooldown.SetCooldown(c.Request.Context(), route.Credential.ID, 0)
-				}
+				endAttempt()
 				sleepCtx(ctx, calculateBackoff(i))
 				continue
 			}

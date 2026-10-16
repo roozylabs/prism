@@ -41,6 +41,9 @@ type Config struct {
 	// "cloudflare" uses CF-Connecting-IP. Set it only when every request
 	// reaches the API through that CDN.
 	TrustedPlatform string
+	// MaxRequestBodyBytes caps every request body. Chat requests with
+	// inline images are the largest legitimate bodies.
+	MaxRequestBodyBytes int64
 }
 
 const defaultTrustedProxies = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"
@@ -65,8 +68,9 @@ func Load() (*Config, error) {
 
 		MCPLocalStdioEnabled: getEnvBool("MCP_LOCAL_STDIO_ENABLED", false),
 
-		TrustedProxies:  splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
-		TrustedPlatform: strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
+		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
+		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
+		MaxRequestBodyBytes: int64(getEnvInt("MAX_REQUEST_BODY_MB", 20)) << 20,
 	}, nil
 }
 
