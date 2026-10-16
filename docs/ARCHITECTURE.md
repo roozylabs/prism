@@ -118,7 +118,7 @@ Web interface for managing the gateway.
 ```text
 Client (OpenCode / Claude Code)
   │
-  ↓ Authorization: Bearer gw_sk_xxxxx
+  ↓ Authorization: Bearer prism_sk_xxxxx
   │
   ├─→ [1] Authentication
   │      - Hash gateway API key
@@ -291,7 +291,7 @@ Provider API Key (plaintext)
 ### 8.2 Gateway API Key Hashing
 
 ```text
-Gateway API Key (plaintext): gw_sk_xxxxx
+Gateway API Key (plaintext): prism_sk_xxxxx
         │
         ↓
    SHA-256 Hash
@@ -472,7 +472,7 @@ Every request is logged with:
 {
   "request_id": "req_8sd78s",
   "timestamp": "2026-08-18T10:42:00Z",
-  "gateway_api_key": "gw_sk_****",
+  "gateway_api_key": "prism_sk_****",
   "provider": "anthropic",
   "model": "claude-sonnet",
   "credential_id": "cred_abc123",

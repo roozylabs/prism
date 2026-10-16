@@ -23,7 +23,7 @@ prism --version
 Save your Gateway URL and Gateway API key locally in `~/.prism/config.json`:
 
 ```bash
-prism login --key gw_sk_prism_123456789 --url http://localhost:8080
+prism login --key prism_sk_123456789 --url http://localhost:8080
 ```
 
 ---

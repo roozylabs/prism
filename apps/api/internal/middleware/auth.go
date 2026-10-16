@@ -40,8 +40,8 @@ func AuthMiddleware(sessions *repository.SessionRepository, keys GatewayKeyFinde
 			return
 		}
 
-		// 4. Gateway API Key support (gw_sk_...) for CLI & SDK access
-		if strings.HasPrefix(token, "gw_sk_") && keys != nil {
+		// 4. Gateway API keys (prism_sk_..., or legacy gw_sk_...) for CLI & SDK access
+		if utils.IsGatewayKey(token) && keys != nil {
 			keyHash := utils.HashSHA256(token)
 			gatewayKey, err := keys.FindByKeyHash(c.Request.Context(), keyHash)
 			if err == nil && gatewayKey != nil {

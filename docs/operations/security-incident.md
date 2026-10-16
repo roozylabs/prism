@@ -11,7 +11,7 @@ This runbook outlines immediate, high-priority containment steps for 4 critical 
 
 ---
 
-### Incident Scenario A: Compromised Gateway API Key (`gw_sk_*`)
+### Incident Scenario A: Compromised Gateway API Key (`prism_sk_*`, or legacy `gw_sk_*`)
 
 **Symptom**: Unauthorized client making requests using a leaked Gateway API key.
 
@@ -19,7 +19,7 @@ This runbook outlines immediate, high-priority containment steps for 4 critical 
 1. **Immediately Revoke Gateway Key**:
    ```sql
    -- Instantly revoke key in PostgreSQL
-   UPDATE gateway_api_keys SET enabled = false WHERE key_prefix = 'gw_sk_f964...';
+   UPDATE gateway_api_keys SET enabled = false WHERE key_prefix = 'prism_sk_f964...';
    ```
 2. **Purge Redis Gateway Key Cache**:
    ```bash

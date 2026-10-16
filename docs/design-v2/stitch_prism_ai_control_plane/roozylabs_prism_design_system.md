@@ -217,7 +217,7 @@ Example:
 
 ```text
 prism-auto
-gw_sk_••••••••91f2
+prism_sk_••••••••91f2
 gpt-5
 req_01K8F7...
 128 ms

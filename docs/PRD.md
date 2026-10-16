@@ -279,7 +279,7 @@ Pada **V2 Roadmap**, Gateway akan mendukung **Multi-Auth Type System** untuk men
 #### 8.1.1 Alur Kerja Google Gemini OAuth 2.0 Token Refresh
 
 ```text
-[Client Request (Authorization: Bearer gw_sk_*)]
+[Client Request (Authorization: Bearer prism_sk_*)]
                          │
                          ▼
 ┌────────────────────────────────────────────────────────┐
@@ -308,7 +308,7 @@ Pada **V2 Roadmap**, Gateway akan mendukung **Multi-Auth Type System** untuk men
 
 Client hanya mengetahui:
 - **Base URL:** `https://api.example.com/v1`
-- **API Key:** `gw_sk_xxxxxxxxx`
+- **API Key:** `prism_sk_xxxxxxxxx`
 
 Client **tidak pernah** mengetahui credential asli seperti `sk-ant-xxxx`, `sk-proj-xxxx`, atau `AIza...`.
 
@@ -327,7 +327,7 @@ Ketika model dipilih atau dihapus pada dropdown, struktur JSON `opencode.jsonc` 
     "ai-gateway": {
       "options": {
         "baseURL": "http://<SERVER_IP>:3000/v1",
-        "apiKey": "gw_sk_xxxxxxxx"
+        "apiKey": "prism_sk_xxxxxxxx"
       },
       "models": {
         "big-pickle": {
@@ -639,7 +639,7 @@ Keamanan adalah aspek paling kritikal karena aplikasi menyimpan private API cred
    - Semua provider API keys wajib terenkripsi saat istirahat (*encrypted at rest*).
    - Database tidak pernah menyimpan plaintext credential.
 2. **API Key Hashing:**
-   - Gateway API key disimpan dalam bentuk Secure Hash. Plaintext key hanya ditampilkan 1x saat pembuatan (`hash(gw_sk_xxxxx)`).
+   - Gateway API key disimpan dalam bentuk Secure Hash. Plaintext key hanya ditampilkan 1x saat pembuatan (`hash(prism_sk_xxxxx)`).
 3. **Secret Exposure Prevention:**
    - Provider API key dilarang keras muncul pada: frontend response, browser `localStorage`, server logs, error messages, analytics data, maupun request trace logs.
 
@@ -877,7 +877,7 @@ Next.js
 ## 28. API Key Authentication Pipeline
 
 ```text
-Gateway Request (Authorization: Bearer gw_sk_xxxxxxxxx)
+Gateway Request (Authorization: Bearer prism_sk_xxxxxxxxx)
                        ↓
                   Hash Check
                        ↓

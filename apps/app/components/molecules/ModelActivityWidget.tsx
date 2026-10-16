@@ -48,7 +48,7 @@ export function ModelActivityWidget({ collapsed }: { collapsed?: boolean }) {
       setActiveModel(latestLog.model || 'prism-auto');
       setActiveCred(
         latestLog.credentialName ||
-          (latestLog.gatewayKeyId ? `gw_sk_${latestLog.gatewayKeyId.slice(0, 6)}` : 'Gateway Key')
+          (latestLog.gatewayKeyId ? `Key ${latestLog.gatewayKeyId.slice(0, 6)}` : 'Gateway Key')
       );
       setLatencyMs(latestLog.latencyMs ?? null);
       setLastActiveTime(logTime);

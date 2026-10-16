@@ -11,7 +11,7 @@ description: Master knowledge base and developer guide for RoozyLabs Prism (v2.1
 
 ```text
 [Client / OpenCode CLI / App / Agent]
-            │ (HTTP Bearer gw_sk_*)
+            │ (HTTP Bearer prism_sk_*)
             │ (Header: X-Prism-Org-ID / X-Prism-Agent-ID)
             ▼
 ┌────────────────────────────────────────────────────────┐
@@ -86,7 +86,7 @@ Save to `~/.config/opencode/opencode.jsonc`:
     "prism": {
       "options": {
         "baseURL": "https://api.prism.roozylabs.com/v1",
-        "apiKey": "gw_sk_prism_<YOUR_KEY>"
+        "apiKey": "prism_sk_<YOUR_KEY>"
       },
       "models": {
         "prism-auto": {

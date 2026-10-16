@@ -34,7 +34,7 @@ import { Prism } from "@roozylabs/prism";
 
 const prism = new Prism({
   baseURL: "http://localhost:8080", // Default: http://localhost:8080
-  apiKey: "gw_sk_prism_your_key",     // Default: process.env.PRISM_API_KEY
+  apiKey: "prism_sk_your_key",     // Default: process.env.PRISM_API_KEY
   orgId: "org_default",              // Header: X-Prism-Org-ID
   workspaceId: "ws_default",         // Header: X-Prism-Workspace-ID
   projectId: "proj_default",         // Header: X-Prism-Project-ID

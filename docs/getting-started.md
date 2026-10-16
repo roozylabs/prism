@@ -11,11 +11,11 @@ This guide will walk you through setting up Prism, acquiring API keys, and makin
 Prism sits between your client applications, AI agents, and upstream LLM providers (OpenAI, Anthropic, Google Gemini, OpenCode, etc.):
 
 ```text
-[Your App / Agent] ──(Bearer gw_sk_*)──> [Prism Gateway] ──(Smart Router)──> [Upstream Provider]
+[Your App / Agent] ──(Bearer prism_sk_*)──> [Prism Gateway] ──(Smart Router)──> [Upstream Provider]
 ```
 
 ### Base Endpoints
-* **API Gateway (`/v1`)**: OpenAI-compatible endpoint (`/v1/chat/completions`, `/v1/models`, `/v1/tools/:name/execute`, `/v1/resources/:name/query`). Authenticated using `gw_sk_*` Bearer tokens.
+* **API Gateway (`/v1`)**: OpenAI-compatible endpoint (`/v1/chat/completions`, `/v1/models`, `/v1/tools/:name/execute`, `/v1/resources/:name/query`). Authenticated using `prism_sk_*` Bearer tokens.
 * **Control Plane (`/api`)**: Management API for credentials, agents, routing policies, budgets, and telemetry.
 
 ---
@@ -24,7 +24,7 @@ Prism sits between your client applications, AI agents, and upstream LLM provide
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer gw_sk_prism_your_key" \
+  -H "Authorization: Bearer prism_sk_your_key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "prism-auto",
@@ -100,7 +100,7 @@ pnpm add -g @roozylabs/prism-cli
 
 ```bash
 # 1. Login & save config
-prism login --key gw_sk_prism_12345 --url http://localhost:8080
+prism login --key prism_sk_12345 --url http://localhost:8080
 
 # 2. Check Gateway Health
 prism health

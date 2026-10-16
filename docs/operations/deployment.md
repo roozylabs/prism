@@ -111,7 +111,7 @@ curl -sS https://api.prism.roozylabs.com/health
 
 # 3. Test Gateway API Key Authentication
 curl -sS https://api.prism.roozylabs.com/v1/models \
-  -H "Authorization: Bearer gw_sk_production_test_key"
+  -H "Authorization: Bearer prism_sk_production_test_key"
 ```
 
 ---

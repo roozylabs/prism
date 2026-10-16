@@ -460,7 +460,7 @@ type Credential struct {
 type GatewayApiKey struct {
     ID           string    `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
     Name         string    `json:"name" example:"OpenCode Key"`
-    KeyPrefix    string    `json:"key_prefix" example:"gw_sk_8sdf..."`
+    KeyPrefix    string    `json:"key_prefix" example:"prism_sk_8sdf..."`
     Enabled      bool      `json:"enabled" example:"true"`
     RateLimit    int       `json:"rate_limit" example:"100"`
     LastUsedAt   time.Time `json:"last_used_at" example:"2026-08-18T10:00:00Z"`
@@ -472,7 +472,7 @@ type GatewayApiKey struct {
 // GatewayApiKeyCreated represents a newly created gateway API key
 type GatewayApiKeyCreated struct {
     GatewayApiKey
-    Key string `json:"key" example:"gw_sk_8sdf89sdf..."`
+    Key string `json:"key" example:"prism_sk_8sdf89sdf..."`
 }
 
 // CreateProviderRequest represents the request to create a provider

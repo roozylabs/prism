@@ -14,8 +14,10 @@ This document provides a summary of the REST API endpoints exposed by RoozyLabs 
 All Gateway endpoints require Bearer token authentication:
 
 ```http
-Authorization: Bearer gw_sk_prism_<YOUR_KEY>
+Authorization: Bearer prism_sk_<YOUR_KEY>
 ```
+
+Keys issued before the rename start with `gw_sk_`; they keep working until revoked. New keys start with `prism_sk_`.
 
 Optional Tenant Attribution Headers:
 - `X-Prism-Org-ID`: Organization ID (default: `org_default`)

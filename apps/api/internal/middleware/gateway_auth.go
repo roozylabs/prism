@@ -32,7 +32,7 @@ func GatewayAuthMiddleware(keys GatewayKeyFinder) gin.HandlerFunc {
 		}
 
 		rawKey := parts[1]
-		if !strings.HasPrefix(rawKey, "gw_sk_") {
+		if !utils.IsGatewayKey(rawKey) {
 			httputil.RespondUnauthorized(c, "Invalid API key prefix", nil, "API_KEY_PREFIX_INVALID")
 			return
 		}
