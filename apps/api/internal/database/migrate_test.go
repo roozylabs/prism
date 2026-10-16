@@ -59,6 +59,13 @@ func TestMigrationsFromEmptyDatabase(t *testing.T) {
 		  AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.conrelid AND i.indkey[0] = c.conkey[1])`); len(unindexed) > 0 {
 		t.Fatalf("foreign keys without an index: %v", unindexed)
 	}
+	// "user".id is text; every column holding a user id must match it.
+	if mismatched := queryStrings(t, dbURL, `
+		SELECT table_name || '.' || column_name || ' ' || data_type
+		FROM information_schema.columns
+		WHERE table_schema = 'public' AND column_name IN ('user_id', 'actor_id') AND data_type <> 'text'`); len(mismatched) > 0 {
+		t.Fatalf("user id columns that are not text: %v", mismatched)
+	}
 	// Two indexes on the same columns double the cost of every write.
 	if duplicates := queryStrings(t, dbURL, `
 		SELECT string_agg(indexrelid::regclass::text, ' = ')

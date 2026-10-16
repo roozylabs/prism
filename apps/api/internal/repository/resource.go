@@ -3,8 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,26 +18,26 @@ func NewResourceRepository(db *sql.DB) *ResourceRepository {
 	return &ResourceRepository{db: db}
 }
 
-const resourceColumns = `id, COALESCE(org_id, ''), COALESCE(workspace_id, ''), user_id, name, display_name, description, parameters_schema, enabled, created_at, updated_at`
+const resourceColumns = `id, COALESCE(org_id, ''), COALESCE(workspace_id, ''), COALESCE(user_id, ''), name, display_name, description, parameters_schema, enabled, created_at, updated_at`
 
-func (r *ResourceRepository) ListByOrgID(ctx context.Context, orgID, workspaceID string) ([]models.Resource, error) {
-	query := `SELECT ` + resourceColumns + ` FROM resources`
-	var conditions []string
-	var args []interface{}
+func scanResource(row interface{ Scan(...interface{}) error }, res *models.Resource) error {
+	return row.Scan(
+		&res.ID, &res.OrgID, &res.WorkspaceID, &res.UserID,
+		&res.Name, &res.DisplayName, &res.Description,
+		&res.ParametersSchema, &res.Enabled,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+}
 
-	if orgID != "" {
-		conditions = append(conditions, fmt.Sprintf("org_id = $%d", len(args)+1))
-		args = append(args, orgID)
-	}
-
+// ListByUserID returns a user's resources, optionally only those of one
+// workspace plus the ones without a workspace.
+func (r *ResourceRepository) ListByUserID(ctx context.Context, userID, workspaceID string) ([]models.Resource, error) {
+	query := `SELECT ` + resourceColumns + ` FROM resources WHERE user_id = $1`
+	args := []interface{}{userID}
 	if workspaceID != "" {
-		conditions = append(conditions, fmt.Sprintf("(workspace_id = $%d OR workspace_id IS NULL OR workspace_id = '')", len(args)+1))
+		query += ` AND (workspace_id = $2 OR workspace_id IS NULL OR workspace_id = '')`
 		args = append(args, workspaceID)
 	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
 	query += ` ORDER BY created_at DESC`
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -51,12 +49,7 @@ func (r *ResourceRepository) ListByOrgID(ctx context.Context, orgID, workspaceID
 	var resources []models.Resource
 	for rows.Next() {
 		var res models.Resource
-		if err := rows.Scan(
-			&res.ID, &res.OrgID, &res.WorkspaceID, &res.UserID,
-			&res.Name, &res.DisplayName, &res.Description,
-			&res.ParametersSchema, &res.Enabled,
-			&res.CreatedAt, &res.UpdatedAt,
-		); err != nil {
+		if err := scanResource(rows, &res); err != nil {
 			return nil, err
 		}
 		resources = append(resources, res)
@@ -64,73 +57,10 @@ func (r *ResourceRepository) ListByOrgID(ctx context.Context, orgID, workspaceID
 	return resources, rows.Err()
 }
 
-func (r *ResourceRepository) ListByUserID(ctx context.Context, userID string) ([]models.Resource, error) {
-	query := `SELECT ` + resourceColumns + ` FROM resources`
-	var args []interface{}
-	if userID != "" {
-		query += ` WHERE user_id = $1`
-		args = append(args, userID)
-	}
-	query += ` ORDER BY created_at DESC`
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	var resources []models.Resource
-	for rows.Next() {
-		var res models.Resource
-		if err := rows.Scan(
-			&res.ID, &res.OrgID, &res.WorkspaceID, &res.UserID,
-			&res.Name, &res.DisplayName, &res.Description,
-			&res.ParametersSchema, &res.Enabled,
-			&res.CreatedAt, &res.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		resources = append(resources, res)
-	}
-	return resources, rows.Err()
-}
-
-func (r *ResourceRepository) FindByID(ctx context.Context, id, orgID string) (*models.Resource, error) {
+func (r *ResourceRepository) FindByID(ctx context.Context, id, userID string) (*models.Resource, error) {
 	var res models.Resource
-	query := `SELECT ` + resourceColumns + ` FROM resources WHERE id = $1`
-	args := []interface{}{id}
-	if orgID != "" {
-		query += ` AND (org_id = $2 OR user_id = $2)`
-		args = append(args, orgID)
-	}
-
-	err := r.db.QueryRowContext(ctx, query, args...).Scan(
-		&res.ID, &res.OrgID, &res.WorkspaceID, &res.UserID,
-		&res.Name, &res.DisplayName, &res.Description,
-		&res.ParametersSchema, &res.Enabled,
-		&res.CreatedAt, &res.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-func (r *ResourceRepository) FindByOrgAndName(ctx context.Context, orgID, name string) (*models.Resource, error) {
-	var res models.Resource
-	query := `SELECT ` + resourceColumns + ` FROM resources WHERE name = $1`
-	args := []interface{}{name}
-	if orgID != "" {
-		query += ` AND (org_id = $2 OR user_id = $2)`
-		args = append(args, orgID)
-	}
-	query += ` LIMIT 1`
-
-	err := r.db.QueryRowContext(ctx, query, args...).Scan(
-		&res.ID, &res.OrgID, &res.WorkspaceID, &res.UserID,
-		&res.Name, &res.DisplayName, &res.Description,
-		&res.ParametersSchema, &res.Enabled,
-		&res.CreatedAt, &res.UpdatedAt,
-	)
+	err := scanResource(r.db.QueryRowContext(ctx,
+		`SELECT `+resourceColumns+` FROM resources WHERE id = $1 AND user_id = $2`, id, userID), &res)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +68,13 @@ func (r *ResourceRepository) FindByOrgAndName(ctx context.Context, orgID, name s
 }
 
 func (r *ResourceRepository) FindByUserAndName(ctx context.Context, userID, name string) (*models.Resource, error) {
-	return r.FindByOrgAndName(ctx, userID, name)
+	var res models.Resource
+	err := scanResource(r.db.QueryRowContext(ctx,
+		`SELECT `+resourceColumns+` FROM resources WHERE user_id = $1 AND name = $2`, userID, name), &res)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 func (r *ResourceRepository) Create(ctx context.Context, res *models.Resource) error {
@@ -150,7 +86,7 @@ func (r *ResourceRepository) Create(ctx context.Context, res *models.Resource) e
 	res.UpdatedAt = now
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO resources (id, org_id, workspace_id, user_id, name, display_name, description, parameters_schema, enabled, created_at, updated_at)
-		 VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11)`,
+		 VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8, $9, $10, $11)`,
 		res.ID, res.OrgID, res.WorkspaceID, res.UserID, res.Name, res.DisplayName, res.Description, []byte(res.ParametersSchema), res.Enabled, res.CreatedAt, res.UpdatedAt)
 	return err
 }
@@ -170,7 +106,7 @@ func (r *ResourceRepository) CreateWithBackendsTx(ctx context.Context, res *mode
 	res.UpdatedAt = now
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO resources (id, org_id, workspace_id, user_id, name, display_name, description, parameters_schema, enabled, created_at, updated_at)
-		 VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11)`,
+		 VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8, $9, $10, $11)`,
 		res.ID, res.OrgID, res.WorkspaceID, res.UserID, res.Name, res.DisplayName, res.Description, []byte(res.ParametersSchema), res.Enabled, res.CreatedAt, res.UpdatedAt)
 	if err != nil {
 		return err
@@ -206,37 +142,27 @@ func (r *ResourceRepository) CreateWithBackendsTx(ctx context.Context, res *mode
 
 func (r *ResourceRepository) Update(ctx context.Context, res *models.Resource) error {
 	res.UpdatedAt = time.Now()
-	query := `UPDATE resources SET display_name=$1, description=$2, parameters_schema=$3, enabled=$4, updated_at=$5 WHERE id=$6`
-	args := []interface{}{res.DisplayName, res.Description, []byte(res.ParametersSchema), res.Enabled, res.UpdatedAt, res.ID}
-	if res.OrgID != "" {
-		query += ` AND (org_id=$7 OR user_id=$7)`
-		args = append(args, res.OrgID)
-	}
-	_, err := r.db.ExecContext(ctx, query, args...)
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE resources SET display_name=$1, description=$2, parameters_schema=$3, enabled=$4, updated_at=$5 WHERE id=$6 AND user_id=$7`,
+		res.DisplayName, res.Description, []byte(res.ParametersSchema), res.Enabled, res.UpdatedAt, res.ID, res.UserID)
 	return err
 }
 
-func (r *ResourceRepository) Delete(ctx context.Context, id, orgID string) error {
-	query := `DELETE FROM resources WHERE id = $1`
-	args := []interface{}{id}
-	if orgID != "" {
-		query += ` AND (org_id = $2 OR user_id = $2)`
-		args = append(args, orgID)
-	}
-	_, err := r.db.ExecContext(ctx, query, args...)
+func (r *ResourceRepository) Delete(ctx context.Context, id, userID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM resources WHERE id = $1 AND user_id = $2`, id, userID)
 	return err
 }
 
 func (r *ResourceRepository) GetResourceWithBackends(ctx context.Context, userID, resourceName string) (*models.ResourceWithBackends, error) {
-	res, err := r.FindByOrgAndName(ctx, userID, resourceName)
+	res, err := r.FindByUserAndName(ctx, userID, resourceName)
 	if err != nil {
 		return nil, err
 	}
 	return r.attachBackends(ctx, res)
 }
 
-func (r *ResourceRepository) GetResourceWithBackendsByID(ctx context.Context, id, orgID string) (*models.ResourceWithBackends, error) {
-	res, err := r.FindByID(ctx, id, orgID)
+func (r *ResourceRepository) GetResourceWithBackendsByID(ctx context.Context, id, userID string) (*models.ResourceWithBackends, error) {
+	res, err := r.FindByID(ctx, id, userID)
 	if err != nil {
 		return nil, err
 	}

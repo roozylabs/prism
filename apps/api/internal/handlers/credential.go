@@ -169,7 +169,7 @@ func (h *CredentialHandler) Create(c *gin.Context) {
 		userID = c.GetString("user_id")
 	}
 
-	if h.providers != nil && userID != "" && userID != "user_admin" {
+	if h.providers != nil && userID != "" {
 		prov, err := h.providers.FindByID(c.Request.Context(), providerID)
 		if err != nil || !providerAcceptsCredentialsFrom(prov, userID) {
 			httputil.RespondForbidden(c, "Cannot attach credentials to a provider you do not own or is disabled", err, "PROVIDER_ACCESS_DENIED")

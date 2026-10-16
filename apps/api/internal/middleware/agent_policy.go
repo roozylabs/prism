@@ -5,15 +5,14 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/roozylabs/prism/internal/httputil"
 	"github.com/roozylabs/prism/internal/models"
 )
 
-// AgentFinder abstracts agent lookup for middleware flexibility.
+// AgentFinder resolves an agent id or name to one the caller may use: their
+// own, or a system agent.
 type AgentFinder interface {
-	FindByID(ctx context.Context, id, userID string) (*models.Agent, error)
-	FindByUserAndName(ctx context.Context, userID, name string) (*models.Agent, error)
+	FindForUser(ctx context.Context, userID, ref string) (*models.Agent, error)
 }
 
 func AgentPolicyMiddleware(agents AgentFinder) gin.HandlerFunc {
@@ -27,14 +26,13 @@ func AgentPolicyMiddleware(agents AgentFinder) gin.HandlerFunc {
 			return
 		}
 
-		var agent *models.Agent
-		var err error
-		if _, uuidErr := uuid.Parse(agentID); uuidErr == nil {
-			agent, err = agents.FindByID(c.Request.Context(), agentID, "")
+		var ownerID string
+		if key, ok := c.Get("gatewayKey"); ok {
+			if gk, isKey := key.(*models.GatewayAPIKey); isKey && gk != nil {
+				ownerID = gk.UserID
+			}
 		}
-		if agent == nil {
-			agent, err = agents.FindByUserAndName(c.Request.Context(), "", agentID)
-		}
+		agent, err := agents.FindForUser(c.Request.Context(), ownerID, agentID)
 
 		if err != nil || agent == nil {
 			httputil.RespondForbidden(c, "Agent identity specified in X-Prism-Agent-ID was not found", err, "AGENT_NOT_FOUND")

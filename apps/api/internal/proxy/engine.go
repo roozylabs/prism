@@ -68,13 +68,10 @@ func (e *Engine) recordMCPInvocationsIfAny(ctx context.Context, userID string, r
 			parts := strings.SplitN(rec.Name, "__", 2)
 			serverName := parts[0]
 			toolName := parts[1]
-			srv, err := e.mcpServers.FindByUserAndName(ctx, userID, serverName)
-			if err != nil || srv == nil {
-				srv, _ = e.mcpServers.FindByUserAndName(ctx, "", serverName)
-			}
+			srv, _ := e.mcpServers.FindByUserAndName(ctx, userID, serverName)
 			if srv != nil {
 				inv := &models.MCPInvocation{
-					UserID:       srv.UserID,
+					UserID:       userID,
 					MCPServerID:  srv.ID,
 					ToolName:     toolName,
 					StatusCode:   200,

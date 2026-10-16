@@ -21,7 +21,7 @@ func (r *ProviderRepository) ListByUserID(ctx context.Context, userID string) ([
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, COALESCE(user_id, ''), name, slug, base_url, type, enabled, routing_strategy, created_at, updated_at
 		 FROM providers
-		 WHERE user_id = $1 OR user_id IS NULL OR user_id IN ('', 'user_admin')
+		 WHERE user_id = $1 OR user_id IS NULL
 		 ORDER BY (CASE WHEN user_id = $1 THEN 0 ELSE 1 END), name ASC`, userID,
 	)
 	if err != nil {

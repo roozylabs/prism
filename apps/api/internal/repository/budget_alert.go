@@ -47,7 +47,7 @@ func (r *BudgetAlertRepository) ListUnacknowledged(ctx context.Context, limit in
 	}
 	var query string
 	var args []interface{}
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		query = `SELECT ba.id, ba.budget_id, ba.alert_type, ba.usage_percent, ba.monthly_spent, ba.monthly_limit, ba.acknowledged_at, ba.created_at
 		         FROM budget_alerts ba
 		         INNER JOIN budgets b ON ba.budget_id = b.id

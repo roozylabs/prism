@@ -66,8 +66,8 @@ type CreateResourceRequest struct {
 }
 
 func (h *ResourceHandler) List(c *gin.Context) {
-	orgID, wsID, _ := getTenantContext(c)
-	resources, err := h.resources.ListByOrgID(c.Request.Context(), orgID, wsID)
+	_, wsID, userID := getTenantContext(c)
+	resources, err := h.resources.ListByUserID(c.Request.Context(), userID, wsID)
 	if err != nil {
 		httputil.RespondInternalError(c, "Failed to list resources", err, "RESOURCES_LIST_FAILED")
 		return
@@ -79,8 +79,8 @@ func (h *ResourceHandler) List(c *gin.Context) {
 }
 
 func (h *ResourceHandler) Get(c *gin.Context) {
-	orgID, _, _ := getTenantContext(c)
-	rwb, err := h.resources.GetResourceWithBackendsByID(c.Request.Context(), c.Param("id"), orgID)
+	_, _, userID := getTenantContext(c)
+	rwb, err := h.resources.GetResourceWithBackendsByID(c.Request.Context(), c.Param("id"), userID)
 	if err != nil {
 		httputil.RespondNotFound(c, "Resource not found", err, "RESOURCE_NOT_FOUND")
 		return
@@ -165,15 +165,15 @@ func (h *ResourceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	rwb, _ := h.resources.GetResourceWithBackendsByID(c.Request.Context(), res.ID, orgID)
+	rwb, _ := h.resources.GetResourceWithBackendsByID(c.Request.Context(), res.ID, userID)
 	c.JSON(http.StatusCreated, rwb)
 }
 
 func (h *ResourceHandler) Update(c *gin.Context) {
-	orgID, _, _ := getTenantContext(c)
+	_, _, userID := getTenantContext(c)
 	id := c.Param("id")
 
-	existing, err := h.resources.FindByID(c.Request.Context(), id, orgID)
+	existing, err := h.resources.FindByID(c.Request.Context(), id, userID)
 	if err != nil {
 		httputil.RespondNotFound(c, "Resource not found", err, "RESOURCE_NOT_FOUND")
 		return
@@ -212,13 +212,13 @@ func (h *ResourceHandler) Update(c *gin.Context) {
 		}
 	}
 
-	rwb, _ := h.resources.GetResourceWithBackendsByID(c.Request.Context(), id, orgID)
+	rwb, _ := h.resources.GetResourceWithBackendsByID(c.Request.Context(), id, userID)
 	c.JSON(http.StatusOK, rwb)
 }
 
 func (h *ResourceHandler) Delete(c *gin.Context) {
-	orgID, _, _ := getTenantContext(c)
-	if err := h.resources.Delete(c.Request.Context(), c.Param("id"), orgID); err != nil {
+	_, _, userID := getTenantContext(c)
+	if err := h.resources.Delete(c.Request.Context(), c.Param("id"), userID); err != nil {
 		httputil.RespondInternalError(c, "Failed to delete resource", err, "RESOURCE_DELETE_FAILED")
 		return
 	}
@@ -230,10 +230,10 @@ type TestResourceRequest struct {
 }
 
 func (h *ResourceHandler) TestResource(c *gin.Context) {
-	orgID, _, userID := getTenantContext(c)
+	_, _, userID := getTenantContext(c)
 	id := c.Param("id")
 
-	res, err := h.resources.FindByID(c.Request.Context(), id, orgID)
+	res, err := h.resources.FindByID(c.Request.Context(), id, userID)
 	if err != nil {
 		httputil.RespondNotFound(c, "Resource not found", err, "RESOURCE_NOT_FOUND")
 		return
@@ -244,14 +244,9 @@ func (h *ResourceHandler) TestResource(c *gin.Context) {
 		return
 	}
 
-	lookupKey := orgID
-	if lookupKey == "" {
-		lookupKey = userID
-	}
-
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
-	result, err := h.gateway.Execute(ctx, lookupKey, res.Name, req.Args, h.encKey)
+	result, err := h.gateway.Execute(ctx, userID, res.Name, req.Args, h.encKey)
 	if err != nil {
 		httputil.RespondError(c, http.StatusBadGateway, "Resource execution failed: "+err.Error(), err, "RESOURCE_EXECUTION_FAILED")
 		return
