@@ -181,8 +181,16 @@ func main() {
 	jobQueue.SetEventPublisher(eventPublisher)
 	gatewayHandler.SetJobQueue(jobQueue)
 
+	// SIGTERM stops workers taking new jobs; at exit, running jobs get the
+	// shutdown timeout to finish before the post-processor (deferred above,
+	// so it runs after this) flushes.
 	jobWorkerCtx, jobWorkerStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer jobWorkerStop()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeoutSeconds)*time.Second)
+		defer cancel()
+		jobQueue.Stop(ctx)
+	}()
 
 	jobQueue.StartWorkerPool(jobWorkerCtx, 5, func(job *queue.AsyncJob) (*proxy.ProviderResponse, error) {
 		res, execErr := orchestrator.ExecuteChatCompletions(
