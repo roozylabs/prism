@@ -45,15 +45,17 @@ func (r *AgentTemplateRepository) Create(ctx context.Context, tmpl *models.Agent
 	return nil
 }
 
-func (r *AgentTemplateRepository) FindByID(ctx context.Context, id string) (*models.AgentTemplate, error) {
+// FindByID returns a template, by id or slug, that the user may use: a
+// preset or their own.
+func (r *AgentTemplateRepository) FindByID(ctx context.Context, id, userID string) (*models.AgentTemplate, error) {
 	query := `
 		SELECT id, user_id, name, slug, role, description, icon,
 		       allowed_models, allowed_tools, allowed_resources,
 		       max_budget_cents, is_preset, created_at, updated_at
 		FROM agent_templates
-		WHERE id = $1 OR slug = $1
+		WHERE (id::text = $1 OR slug = $1) AND (is_preset OR user_id = $2)
 	`
-	row := r.db.QueryRowContext(ctx, query, id)
+	row := r.db.QueryRowContext(ctx, query, id, userID)
 	var t models.AgentTemplate
 	err := row.Scan(
 		&t.ID, &t.UserID, &t.Name, &t.Slug, &t.Role, &t.Description, &t.Icon,

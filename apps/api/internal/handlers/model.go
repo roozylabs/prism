@@ -95,7 +95,7 @@ func (h *ModelHandler) Create(c *gin.Context) {
 	m.ProviderID = providerID
 
 	if err := h.models.Create(c.Request.Context(), &m); err != nil {
-		httputil.RespondInternalError(c, "Failed to create model", err, "MODEL_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Model", "MODEL_CREATE")
 		return
 	}
 	c.JSON(http.StatusCreated, m)
@@ -127,7 +127,7 @@ func (h *ModelHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.models.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update model", err, "MODEL_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Model", "MODEL_UPDATE")
 		return
 	}
 	c.JSON(http.StatusOK, existing)
@@ -180,7 +180,7 @@ func (h *ModelHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.models.Delete(c.Request.Context(), modelID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete model", err, "MODEL_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Model", "MODEL_DELETE")
 		return
 	}
 	c.Status(http.StatusNoContent)

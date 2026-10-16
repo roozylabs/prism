@@ -215,6 +215,6 @@ func (r *ModelRepository) Update(ctx context.Context, m *models.Model) error {
 }
 
 func (r *ModelRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM models WHERE id = $1`, id)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM models WHERE id = $1`, id)
+	return requireOneRow(res, err)
 }

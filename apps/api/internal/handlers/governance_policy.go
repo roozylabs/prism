@@ -64,6 +64,16 @@ func (h *GovernancePolicyHandler) Create(c *gin.Context) {
 		return
 	}
 
+	effect, err := normalizeEffect(req.Effect)
+	if err != nil {
+		httputil.RespondBadRequest(c, err.Error(), err, "INVALID_EFFECT")
+		return
+	}
+	if req.Priority < 0 {
+		httputil.RespondBadRequest(c, "priority must not be negative", nil, "INVALID_PRIORITY")
+		return
+	}
+
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -74,7 +84,7 @@ func (h *GovernancePolicyHandler) Create(c *gin.Context) {
 		Name:            req.Name,
 		Description:     req.Description,
 		Role:            req.Role,
-		Effect:          req.Effect,
+		Effect:          effect,
 		AgentPattern:    req.AgentPattern,
 		ModelPattern:    req.ModelPattern,
 		ToolPattern:     req.ToolPattern,
@@ -84,7 +94,7 @@ func (h *GovernancePolicyHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.repo.Create(c.Request.Context(), policy); err != nil {
-		httputil.RespondInternalError(c, "Failed to create governance policy", err, "GOVERNANCE_POLICY_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Governance policy", "GOVERNANCE_POLICY_CREATE")
 		return
 	}
 	c.JSON(http.StatusCreated, policy)
@@ -110,8 +120,13 @@ func (h *GovernancePolicyHandler) Update(c *gin.Context) {
 	if req.Role != "" {
 		existing.Role = req.Role
 	}
-	if req.Effect != "" {
-		existing.Effect = req.Effect
+	effect, err := normalizeEffect(req.Effect)
+	if err != nil {
+		httputil.RespondBadRequest(c, err.Error(), err, "INVALID_EFFECT")
+		return
+	}
+	if effect != "" {
+		existing.Effect = effect
 	}
 	existing.AgentPattern = req.AgentPattern
 	existing.ModelPattern = req.ModelPattern
@@ -125,7 +140,7 @@ func (h *GovernancePolicyHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.repo.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update governance policy", err, "GOVERNANCE_POLICY_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Governance policy", "GOVERNANCE_POLICY_UPDATE")
 		return
 	}
 	c.JSON(http.StatusOK, existing)
@@ -135,7 +150,7 @@ func (h *GovernancePolicyHandler) Delete(c *gin.Context) {
 	userID := c.GetString("userId")
 	id := c.Param("id")
 	if err := h.repo.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete governance policy", err, "GOVERNANCE_POLICY_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Governance policy", "GOVERNANCE_POLICY_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "governance policy deleted"})

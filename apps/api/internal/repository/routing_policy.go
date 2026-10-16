@@ -22,8 +22,8 @@ func (r *RoutingPolicyRepository) ListByUserID(ctx context.Context, userID strin
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, user_id, name, weights::text, constraints::text, enabled, is_default, created_at, updated_at
 		 FROM routing_policies
-		 WHERE user_id = $1 AND enabled = true
-		 ORDER BY is_default DESC, name ASC`, userID,
+		 WHERE user_id = $1
+		 ORDER BY is_default DESC, enabled DESC, name ASC`, userID,
 	)
 	if err != nil {
 		return nil, err
@@ -153,43 +153,40 @@ func (r *RoutingPolicyRepository) Update(ctx context.Context, p *models.RoutingP
 	return err
 }
 
+// SetDefault makes one of the user's policies the default. The policy is
+// checked before the old default is cleared, so an unknown id leaves the
+// current default in place and returns sql.ErrNoRows.
 func (r *RoutingPolicyRepository) SetDefault(ctx context.Context, id, userID string) error {
+	if userID == "" {
+		return sql.ErrNoRows
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
+	defer func() { _ = tx.Rollback() }()
 
-	// Reset default for policies belonging to user
-	if userID != "" {
-		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1`, userID)
-	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1 OR user_id IS NULL OR user_id = ''`, userID)
-	}
-	if err != nil {
+	var found int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT 1 FROM routing_policies WHERE id = $1 AND user_id = $2 FOR UPDATE`, id, userID).Scan(&found); err != nil {
 		return err
 	}
-
-	// Set selected policy as default with user check
-	if userID != "" {
-		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = true, enabled = true, updated_at = NOW() WHERE id = $1 AND user_id = $2`, id, userID)
-	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = true, enabled = true, updated_at = NOW() WHERE id = $1`, id)
-	}
-	if err != nil {
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE routing_policies SET is_default = false WHERE user_id = $1 AND is_default AND id <> $2`, userID, id); err != nil {
 		return err
 	}
-
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE routing_policies SET is_default = true, enabled = true, updated_at = NOW() WHERE id = $1 AND user_id = $2`, id, userID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
 func (r *RoutingPolicyRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx,
+	res, err := r.db.ExecContext(ctx,
 		`DELETE FROM routing_policies WHERE id = $1 AND user_id = $2`, id, userID,
 	)
-	return err
+	return requireOneRow(res, err)
 }
 
 func marshalPolicyJSON(p *models.RoutingPolicy) error {

@@ -116,10 +116,10 @@ func (r *BudgetRepository) Update(ctx context.Context, budget *models.Budget) er
 }
 
 func (r *BudgetRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx,
+	res, err := r.db.ExecContext(ctx,
 		`DELETE FROM budgets WHERE id = $1 AND user_id = $2`, id, userID,
 	)
-	return err
+	return requireOneRow(res, err)
 }
 
 func (r *BudgetRepository) GetTotalMonthlySpend(ctx context.Context, userID string) (float64, error) {

@@ -2,10 +2,14 @@
 package httputil
 
 import (
+	"database/sql"
+	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 // APIError represents the standard, sanitized client-facing error structure.
@@ -138,4 +142,19 @@ func RespondInternalError(c *gin.Context, clientMessage string, internalErr erro
 		errCode = "INTERNAL_ERROR"
 	}
 	RespondError(c, http.StatusInternalServerError, clientMessage, internalErr, errCode)
+}
+
+// RespondStoreError answers a failed repository call: 404 when the row does
+// not exist or belongs to someone else, 409 for a unique-constraint
+// violation, 500 otherwise.
+func RespondStoreError(c *gin.Context, err error, what, code string) {
+	var pqErr *pq.Error
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		RespondError(c, http.StatusNotFound, what+" not found", err, code+"_NOT_FOUND")
+	case errors.As(err, &pqErr) && pqErr.Code == "23505":
+		RespondError(c, http.StatusConflict, what+" already exists", err, code+"_CONFLICT")
+	default:
+		RespondError(c, http.StatusInternalServerError, "Failed to save "+strings.ToLower(what), err, code+"_FAILED")
+	}
 }

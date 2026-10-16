@@ -69,7 +69,7 @@ func (h *RoutingPolicyHandler) Create(c *gin.Context) {
 		Enabled:     true,
 	}
 	if err := h.policyRepo.Create(c.Request.Context(), policy); err != nil {
-		httputil.RespondInternalError(c, "Failed to create policy", err, "POLICY_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_CREATE")
 		return
 	}
 	c.JSON(http.StatusCreated, policy)
@@ -108,7 +108,7 @@ func (h *RoutingPolicyHandler) Update(c *gin.Context) {
 		existing.Enabled = *req.Enabled
 	}
 	if err := h.policyRepo.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update policy", err, "POLICY_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_UPDATE")
 		return
 	}
 	c.JSON(http.StatusOK, existing)
@@ -118,7 +118,7 @@ func (h *RoutingPolicyHandler) Delete(c *gin.Context) {
 	userID := c.GetString("userId")
 	id := c.Param("id")
 	if err := h.policyRepo.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete policy", err, "POLICY_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "policy deleted"})
@@ -128,7 +128,7 @@ func (h *RoutingPolicyHandler) SetDefault(c *gin.Context) {
 	userID := c.GetString("userId")
 	id := c.Param("id")
 	if err := h.policyRepo.SetDefault(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to set policy as default", err, "POLICY_SET_DEFAULT_FAILED")
+		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_SET_DEFAULT")
 		return
 	}
 	policy, err := h.policyRepo.FindByID(c.Request.Context(), id, userID)

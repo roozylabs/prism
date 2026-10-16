@@ -140,6 +140,12 @@ func (r *AgentRepository) Create(ctx context.Context, a *models.Agent) error {
 	if a.Status == "" {
 		a.Status = "active"
 	}
+	// The allowed_* columns are NOT NULL; a nil list means none.
+	for _, list := range []*[]string{&a.AllowedModels, &a.AllowedTools, &a.AllowedResources, &a.AllowedMCPServers} {
+		if *list == nil {
+			*list = []string{}
+		}
+	}
 	return r.db.QueryRowContext(ctx,
 		`INSERT INTO agents (user_id, name, display_name, description, agent_type, system_prompt_override, allowed_models, allowed_tools, allowed_resources, allowed_mcp_servers, max_budget_cents, status, enabled, created_at, updated_at)
 		 VALUES (NULLIF($1, ''), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -164,6 +170,6 @@ func (r *AgentRepository) Update(ctx context.Context, a *models.Agent) error {
 }
 
 func (r *AgentRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1 AND user_id = $2`, id, userID)
+	return requireOneRow(res, err)
 }

@@ -98,8 +98,8 @@ func (r *RoutingRuleRepository) Update(ctx context.Context, rule *models.Routing
 }
 
 func (r *RoutingRuleRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx,
+	res, err := r.db.ExecContext(ctx,
 		`DELETE FROM routing_rules WHERE id = $1 AND user_id = $2`, id, userID,
 	)
-	return err
+	return requireOneRow(res, err)
 }

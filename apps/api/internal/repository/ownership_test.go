@@ -90,8 +90,9 @@ func TestOwnerScopedReadsAndWrites(t *testing.T) {
 	if err := agents.Update(ctx, &models.Agent{ID: ids["systemAgent"], DisplayName: "hijacked"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := agents.Delete(ctx, ids["bobAgent"], "alice"); err != nil {
-		t.Fatal(err)
+	// Deleting another user's agent changes nothing and reports not found.
+	if err := agents.Delete(ctx, ids["bobAgent"], "alice"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("alice deleting bob's agent: err = %v, want sql.ErrNoRows", err)
 	}
 	var hijacked, bobsLeft int
 	if err := db.QueryRow(`SELECT count(*) FILTER (WHERE display_name = 'hijacked'), count(*) FILTER (WHERE user_id = 'bob') FROM agents`).Scan(&hijacked, &bobsLeft); err != nil {

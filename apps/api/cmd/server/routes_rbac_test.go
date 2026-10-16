@@ -5,7 +5,10 @@ import (
 	"go/parser"
 	"go/token"
 	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/roozylabs/prism/internal/middleware"
 )
 
 // protectedRoutePermissions parses main.go and returns "METHOD path" -> permission
@@ -92,6 +95,13 @@ func TestProtectedRoutes_SensitiveRoutesRequirePermission(t *testing.T) {
 		"PUT /quotas/:target_type/:target_id":                    "quota:update",
 		"GET /billing/subscription":                              "billing:read",
 		"POST /billing/subscription/upgrade":                     "billing:manage",
+		"GET /logs":                                              "logs:read",
+		"GET /analytics/finops":                                  "finops:read",
+		"POST /analytics/finops/budget-alerts/:id/acknowledge":   "finops:manage_budget",
+		"GET /routing-policies":                                  "routing:read",
+		"PUT /routing-policies/:id/default":                      "routing:update",
+		"DELETE /routing-rules/:id":                              "routing:update",
+		"POST /routing/simulate":                                 "routing:read",
 		"GET /settings":                                          "organization:read",
 		"PUT /settings":                                          "organization:update",
 		"GET /governance/policies":                               "governance:read",
@@ -130,49 +140,28 @@ func TestProtectedRoutes_UnguardedRoutesAreExplicit(t *testing.T) {
 	// Routes still relying on handler-level user/tenant scoping only. Adding a
 	// route here is a deliberate decision; prefer a requirePermission guard.
 	unguarded := map[string]bool{
-		"GET /logs":                                            true,
-		"GET /analytics/logs":                                  true,
-		"GET /analytics/finops":                                true,
-		"GET /analytics/finops/anomalies":                      true,
-		"GET /analytics/finops/budget-alerts":                  true,
-		"POST /analytics/finops/budget-alerts/:id/acknowledge": true,
-		"GET /dashboard/stats":                                 true,
-		"GET /dashboard/usage":                                 true,
-		"GET /dashboard/health":                                true,
-		"GET /dashboard/active-streams":                        true,
-		"GET /sse":                                             true,
-		"GET /routing-rules":                                   true,
-		"GET /routing-rules/:id":                               true,
-		"POST /routing-rules":                                  true,
-		"PUT /routing-rules/:id":                               true,
-		"DELETE /routing-rules/:id":                            true,
-		"GET /routing-policies":                                true,
-		"GET /routing-policies/:id":                            true,
-		"POST /routing-policies":                               true,
-		"PUT /routing-policies/:id":                            true,
-		"PUT /routing-policies/:id/default":                    true,
-		"DELETE /routing-policies/:id":                         true,
-		"GET /policies":                                        true,
-		"GET /policies/:id":                                    true,
-		"POST /policies":                                       true,
-		"PUT /policies/:id":                                    true,
-		"PUT /policies/:id/default":                            true,
-		"DELETE /policies/:id":                                 true,
-		"GET /routing/policies":                                true,
-		"POST /routing/policies":                               true,
-		"PUT /routing/policies/:id":                            true,
-		"PUT /routing/policies/:id/default":                    true,
-		"DELETE /routing/policies/:id":                         true,
-		"GET /routing/decisions":                               true,
-		"GET /routing-decisions":                               true,
-		"POST /routing/simulate":                               true,
-		"POST /routing-simulate":                               true,
-		"GET /jobs/:jobId":                                     true,
+		"GET /dashboard/stats":          true,
+		"GET /dashboard/usage":          true,
+		"GET /dashboard/health":         true,
+		"GET /dashboard/active-streams": true,
+		"GET /sse":                      true,
+		"GET /jobs/:jobId":              true,
 	}
 
 	for route, code := range protectedRoutePermissions(t) {
 		if code == "" && !unguarded[route] {
 			t.Errorf("protected route %s has no requirePermission guard", route)
+		}
+	}
+}
+
+func TestGatewayKeyRoutesExist(t *testing.T) {
+	routes := protectedRoutePermissions(t)
+	for route := range middleware.GatewayKeyRoutes {
+		method, path, _ := strings.Cut(route, " ")
+		// A typo here would silently lock the CLI out of that endpoint.
+		if _, ok := routes[method+" "+strings.TrimPrefix(path, "/api")]; !ok {
+			t.Errorf("gateway key route %s is not registered on the protected group", route)
 		}
 	}
 }

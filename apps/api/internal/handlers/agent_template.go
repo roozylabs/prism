@@ -90,7 +90,7 @@ func (h *AgentTemplateHandler) CreateTemplate(c *gin.Context) {
 	}
 
 	if err := h.tmplRepo.Create(c.Request.Context(), tmpl); err != nil {
-		httputil.RespondInternalError(c, "Failed to create agent template", err, "AGENT_TEMPLATE_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Agent template", "AGENT_TEMPLATE_CREATE")
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *AgentTemplateHandler) InstantiateTemplate(c *gin.Context) {
 	userID := c.GetString("userId")
 	tmplID := c.Param("id")
 
-	tmpl, err := h.tmplRepo.FindByID(c.Request.Context(), tmplID)
+	tmpl, err := h.tmplRepo.FindByID(c.Request.Context(), tmplID, userID)
 	if err != nil {
 		httputil.RespondNotFound(c, "Agent template not found", err, "AGENT_TEMPLATE_NOT_FOUND")
 		return

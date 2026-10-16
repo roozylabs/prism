@@ -424,7 +424,7 @@ func (h *CredentialHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.credentials.Delete(c.Request.Context(), credID, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete credential", err, "CREDENTIAL_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Credential", "CREDENTIAL_DELETE")
 		return
 	}
 
