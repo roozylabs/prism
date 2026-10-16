@@ -40,12 +40,12 @@ If Prism is experiencing an incident, **start with the Emergency Incident Decisi
 | 2. **[configuration.md](./configuration.md)** | Classification of root `.env.example` (Required, Secrets, Defaults, Startup Rules). | `VERIFIED` |
 | 3. **[health-readiness.md](./health-readiness.md)** | Liveness (`/health`) vs Readiness (`/ready`), DB/Redis ping checks. | `VERIFIED` |
 | 4. **[database-migrations.md](./database-migrations.md)** | PostgreSQL migration ordering, execution, failure handling, schema backups. | `VERIFIED` |
-| 5. **[backup-recovery.md](./backup-recovery.md)** | Automated `pg_dump` backups, S3 upload, PITR restore, RPO (1h) & RTO (15m). | `VERIFIED` |
+| 5. **[backup-recovery.md](./backup-recovery.md)** | Hourly `pg_dump` with off-host copy and alerts, weekly restore test, restore steps. | Scripts tested locally; cron and remote to be set up on the VPS |
 | 6. **[redis-recovery.md](./redis-recovery.md)** | Handling Redis crashes, cache loss, rate limit keyspace rebuilds. | `VERIFIED` |
 | 7. **[provider-outage.md](./provider-outage.md)** | Managing upstream AI provider outages (OpenAI, Anthropic, Gemini down). | `VERIFIED` |
 | 8. **[credential-outage.md](./credential-outage.md)** | Credential pool exhaustion, key invalidation, emergency key rotation. | `VERIFIED` |
 | 9. **[security-incident.md](./security-incident.md)** | Immediate containment for tenant breaches, API key leaks, and agent abuse. | `VERIFIED` |
-| 10. **[rollback.md](./rollback.md)** | Safe rollback guide for container images, Git commits, and DB migrations. | `VERIFIED` |
+| 10. **[rollback.md](./rollback.md)** | Blue/green rollback (`blue-green.sh --rollback`), deploying an older `sha-` tag, migrations. | Script tested with stubs; not yet run on the VPS |
 | 11. **[disaster-recovery.md](./disaster-recovery.md)** | DR procedures for total VPS loss, DB corruption, and full outage recovery. | `VERIFIED` |
 | 12. **[monitoring.md](./monitoring.md)** | Prometheus metric catalog, Grafana dashboards, log syntax, and P1/P2/P3 alerts. | `VERIFIED` |
 

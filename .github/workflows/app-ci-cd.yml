@@ -126,63 +126,15 @@ jobs:
             if [ ! -d ".git" ]; then
               echo "Cloning private repository..."
               git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git .
-            else
-              echo "Pulling latest changes..."
-              git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-              git pull origin main || git pull origin master || true
             fi
+            # Check out exactly the commit being deployed, so compose and the
+            # deploy script match the image; a failed fetch fails the deploy.
+            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+            git fetch --quiet origin
+            git checkout --quiet --detach ${{ github.sha }}
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Determine active container color for app
-            if docker ps --format '{{.Names}}' | grep -q 'prism-app-green'; then
-              TARGET_SVC="app"
-              TARGET_CONTAINER="prism-app"
-              OLD_SVC="app-green"
-              OLD_CONTAINER="prism-app-green"
-              TARGET_PORT="3000"
-            else
-              TARGET_SVC="app-green"
-              TARGET_CONTAINER="prism-app-green"
-              OLD_SVC="app"
-              OLD_CONTAINER="prism-app"
-              TARGET_PORT="3005"
-            fi
-
-            echo "=== Blue-Green Deploying App to $TARGET_SVC ($TARGET_CONTAINER) on port $TARGET_PORT ==="
-            docker compose pull $TARGET_SVC || true
-            docker compose up -d --no-deps $TARGET_SVC
-
-            echo "Waiting for $TARGET_CONTAINER health check..."
-            HEALTHY=false
-            for i in $(seq 1 20); do
-              STATUS=$(docker inspect --format='{{json .State.Health.Status}}' $TARGET_CONTAINER 2>/dev/null || echo '"unknown"')
-              if [ "$STATUS" = '"healthy"' ]; then
-                HEALTHY=true
-                echo "$TARGET_CONTAINER is healthy!"
-                break
-              fi
-              echo "Health status: $STATUS (attempt $i/20)..."
-              sleep 3
-            done
-
-            if [ "$HEALTHY" = "false" ]; then
-              echo "Error: $TARGET_CONTAINER failed health check. Rolling back..."
-              docker compose stop $TARGET_SVC || true
-              exit 1
-            fi
-
-            # Update Nginx upstream config and reload
-            if [ -d "/etc/nginx/conf.d" ]; then
-              echo "upstream prism_app_backend { server 127.0.0.1:$TARGET_PORT; }" | sudo tee /etc/nginx/conf.d/upstream_app.conf > /dev/null || true
-            fi
-            if docker ps --format '{{.Names}}' | grep -q 'nginx'; then
-              docker exec $(docker ps --format '{{.Names}}' | grep 'nginx' | head -n 1) nginx -s reload || true
-            elif command -v nginx >/dev/null 2>&1; then
-              sudo nginx -s reload || nginx -s reload || true
-            fi
-
-
-            echo "Stopping old container $OLD_CONTAINER..."
-            docker compose stop $OLD_SVC || true
-            docker image prune -f || true
-
+            # Deploys the image built above (tagged sha-<short sha>) to the idle
+            # colour, switches nginx only once it is healthy, and keeps the old
+            # colour stopped for scripts/deploy/blue-green.sh app --rollback.
+            scripts/deploy/blue-green.sh app "sha-$(echo "${{ github.sha }}" | cut -c1-7)"
