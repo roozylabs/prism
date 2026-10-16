@@ -126,75 +126,15 @@ jobs:
             if [ ! -d ".git" ]; then
               echo "Cloning private repository..."
               git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git .
-            else
-              echo "Pulling latest changes..."
-              git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-              git pull origin main || git pull origin master || true
             fi
+            # Check out exactly the commit being deployed, so compose and the
+            # deploy script match the image; a failed fetch fails the deploy.
+            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+            git fetch --quiet origin
+            git checkout --quiet --detach ${{ github.sha }}
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Determine active container color for web
-            if docker ps --format '{{.Names}}' | grep -q 'prism-web-green'; then
-              TARGET_SVC="web"
-              TARGET_CONTAINER="prism-web"
-              OLD_SVC="web-green"
-              OLD_CONTAINER="prism-web-green"
-              TARGET_PORT="3001"
-            else
-              TARGET_SVC="web-green"
-              TARGET_CONTAINER="prism-web-green"
-              OLD_SVC="web"
-              OLD_CONTAINER="prism-web"
-              TARGET_PORT="3006"
-            fi
-
-            echo "=== Blue-Green Deploying Web to $TARGET_SVC ($TARGET_CONTAINER) on port $TARGET_PORT ==="
-            docker compose pull $TARGET_SVC || true
-            docker compose up -d --no-deps $TARGET_SVC
-
-            echo "Waiting for $TARGET_CONTAINER health check on port $TARGET_PORT..."
-            HEALTHY=false
-            for i in $(seq 1 30); do
-              STATUS=$(docker inspect --format='{{json .State.Health.Status}}' $TARGET_CONTAINER 2>/dev/null || echo '"unknown"')
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$TARGET_PORT/ || echo "000")
-              if [ "$STATUS" = '"healthy"' ] || echo "$HTTP_CODE" | grep -qE '^(200|301|302|307|308)$'; then
-                HEALTHY=true
-                echo "$TARGET_CONTAINER is healthy (HTTP $HTTP_CODE, Docker status $STATUS)!"
-                break
-              fi
-              echo "Health status: $STATUS, HTTP code: $HTTP_CODE (attempt $i/30)..."
-              sleep 3
-            done
-
-            if [ "$HEALTHY" = "false" ]; then
-              echo "Error: $TARGET_CONTAINER failed health check. Printing container logs:"
-              docker logs $TARGET_CONTAINER --tail 100 || true
-              echo "Rolling back..."
-              docker compose stop $TARGET_SVC || true
-              exit 1
-            fi
-
-            # Update Nginx upstream config and reload
-            if [ -d "/etc/nginx/conf.d" ]; then
-              echo "upstream prism_web_backend { server 127.0.0.1:$TARGET_PORT; }" | sudo tee /etc/nginx/conf.d/upstream_web.conf > /dev/null || true
-            fi
-
-            # Automatically ensure sites-available / sites-enabled use prism_web_backend upstream
-            for site in /etc/nginx/sites-available/* /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do
-              if [ -f "$site" ] && grep -q "prism\.roozylabs\.com" "$site" 2>/dev/null; then
-                echo "Syncing upstream for $site..."
-                sudo sed -i -E 's|proxy_pass http://(127\.0\.0\.1\|localhost):300[0-9];|proxy_pass http://prism_web_backend;|g' "$site" || true
-              fi
-            done
-
-            # Test Nginx syntax and reload
-            if docker ps --format '{{.Names}}' | grep -q 'nginx'; then
-              docker exec $(docker ps --format '{{.Names}}' | grep 'nginx' | head -n 1) nginx -t && docker exec $(docker ps --format '{{.Names}}' | grep 'nginx' | head -n 1) nginx -s reload || true
-            elif command -v nginx >/dev/null 2>&1; then
-              sudo nginx -t && (sudo nginx -s reload || sudo systemctl reload nginx || true) || true
-            fi
-
-            echo "Stopping old container $OLD_CONTAINER..."
-            docker compose stop $OLD_SVC || true
-            docker image prune -f || true
-
+            # Deploys the image built above (tagged sha-<short sha>) to the idle
+            # colour, switches nginx only once it is healthy, and keeps the old
+            # colour stopped for scripts/deploy/blue-green.sh web --rollback.
+            scripts/deploy/blue-green.sh web "sha-$(echo "${{ github.sha }}" | cut -c1-7)"

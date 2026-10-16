@@ -503,21 +503,9 @@ docker compose up -d api
 # Access PostgreSQL shell
 docker compose exec postgres psql -U postgres -d ai_gateway
 
-# Backup database
-docker compose exec postgres pg_dump -U postgres ai_gateway > backup_$(date +%Y%m%d).sql
-
-# Restore database
-docker compose exec postgres psql -U postgres -d ai_gateway < backup_20260818.sql
-
-# Automated backup script
-cat > /opt/ai-gateway/backup.sh << 'EOF'
-#!/bin/bash
-BACKUP_DIR="/opt/ai-gateway/postgres/backup"
-DATE=$(date +%Y%m%d_%H%M%S)
-docker compose exec -T postgres pg_dump -U postgres ai_gateway | gzip > "$BACKUP_DIR/backup_$DATE.sql.gz"
-find $BACKUP_DIR -name "*.sql.gz" -mtime +7 -delete
-EOF
-chmod +x /opt/ai-gateway/backup.sh
+# Backups, restore test and restore: see docs/operations/backup-recovery.md
+scripts/backup/pg-backup.sh
+scripts/backup/pg-restore-test.sh
 ```
 
 ### 7.3 Redis Operations

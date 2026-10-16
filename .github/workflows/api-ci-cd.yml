@@ -17,6 +17,8 @@ on:
       - '.dockerignore'
       - '.env.example'
       - '.github/workflows/api-ci-cd.yml'
+      # Checked here, but not on push: a script change alone redeploys nothing.
+      - 'scripts/**'
   workflow_dispatch:
 
 # Pull requests run lint, tests and builds only; image push and deploy are
@@ -55,6 +57,11 @@ jobs:
         with:
           working-directory: apps/api
           args: ./... --timeout=5m
+
+      - name: Check deploy and backup scripts
+        run: |
+          shellcheck -x scripts/deploy/*.sh scripts/backup/*.sh
+          bash scripts/deploy/test-blue-green.sh
 
   test:
     name: Run Unit & Integration Tests
@@ -172,75 +179,15 @@ jobs:
             if [ ! -d ".git" ]; then
               echo "Cloning private repository..."
               git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git .
-            else
-              echo "Pulling latest changes..."
-              git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-              git pull origin main || git pull origin master || true
             fi
+            # Check out exactly the commit being deployed, so compose and the
+            # deploy script match the image; a failed fetch fails the deploy.
+            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+            git fetch --quiet origin
+            git checkout --quiet --detach ${{ github.sha }}
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Determine active container color for api
-            if docker ps --format '{{.Names}}' | grep -q 'prism-api-green'; then
-              TARGET_SVC="api"
-              TARGET_CONTAINER="prism-api"
-              OLD_SVC="api-green"
-              OLD_CONTAINER="prism-api-green"
-              TARGET_PORT="8080"
-            else
-              TARGET_SVC="api-green"
-              TARGET_CONTAINER="prism-api-green"
-              OLD_SVC="api"
-              OLD_CONTAINER="prism-api"
-              TARGET_PORT="8085"
-            fi
-
-            echo "=== Blue-Green Deploying API to $TARGET_SVC ($TARGET_CONTAINER) on port $TARGET_PORT ==="
-            docker compose pull $TARGET_SVC || true
-
-            # Run schema migration once as a one-shot job before starting the green container.
-            # This prevents runtime API containers from racing DDL locks at startup.
-            if [ -f "docker-compose.yml" ] && grep -q "migrator:" docker-compose.yml; then
-              echo "Running one-shot database migration (migrator)..."
-              docker compose run --rm migrator || exit 1
-            fi
-
-            docker compose up -d --no-deps $TARGET_SVC
-
-            echo "Waiting for $TARGET_CONTAINER health check..."
-            HEALTHY=false
-            for i in $(seq 1 30); do
-              STATUS=$(docker inspect --format='{{json .State.Health.Status}}' $TARGET_CONTAINER 2>/dev/null || echo '"unknown"')
-              HTTP_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:$TARGET_PORT/ready || echo "000")
-              # /ready answers 200 only when PostgreSQL and Redis respond.
-              if [ "$HTTP_CODE" = "200" ]; then
-                HEALTHY=true
-                echo "$TARGET_CONTAINER is healthy (HTTP $HTTP_CODE, Docker status $STATUS)!"
-                break
-              fi
-              echo "Health status: $STATUS, HTTP code: $HTTP_CODE (attempt $i/30)..."
-              sleep 3
-            done
-
-            if [ "$HEALTHY" = "false" ]; then
-              echo "Error: $TARGET_CONTAINER failed health check. Printing container logs:"
-              docker logs $TARGET_CONTAINER --tail 100 || true
-              echo "Rolling back..."
-              docker compose stop $TARGET_SVC || true
-              exit 1
-            fi
-
-            # Update Nginx upstream config and reload
-            if [ -d "/etc/nginx/conf.d" ]; then
-              echo "upstream prism_api_backend { server 127.0.0.1:$TARGET_PORT; }" | sudo tee /etc/nginx/conf.d/upstream_api.conf > /dev/null || true
-            fi
-            if docker ps --format '{{.Names}}' | grep -q 'nginx'; then
-              docker exec $(docker ps --format '{{.Names}}' | grep 'nginx' | head -n 1) nginx -s reload || true
-            elif command -v nginx >/dev/null 2>&1; then
-              sudo nginx -s reload || nginx -s reload || true
-            fi
-
-
-            echo "Stopping old container $OLD_CONTAINER..."
-            docker compose stop $OLD_SVC || true
-            docker image prune -f || true
-
+            # Deploys the image built above (tagged sha-<short sha>) to the idle
+            # colour, switches nginx only once it is healthy, and keeps the old
+            # colour stopped for scripts/deploy/blue-green.sh api --rollback.
+            scripts/deploy/blue-green.sh api "sha-$(echo "${{ github.sha }}" | cut -c1-7)"

@@ -1,7 +1,7 @@
 services:
   # Go API Gateway Backend (Blue - Default)
   api:
-    image: ghcr.io/roozylabs/prism-api:latest
+    image: ghcr.io/roozylabs/prism-api:${API_IMAGE_TAG:-latest}
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -52,7 +52,7 @@ services:
 
   # Go API Gateway Backend (Green)
   api-green:
-    image: ghcr.io/roozylabs/prism-api:latest
+    image: ghcr.io/roozylabs/prism-api:${API_IMAGE_TAG:-latest}
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -103,7 +103,7 @@ services:
 
   # One-shot database migration job (runs before blue-green cutover)
   migrator:
-    image: ghcr.io/roozylabs/prism-api:latest
+    image: ghcr.io/roozylabs/prism-api:${API_IMAGE_TAG:-latest}
     build:
       context: ./apps/api
       dockerfile: Dockerfile
@@ -123,7 +123,7 @@ services:
 
   # Next.js Frontend Dashboard (Blue - Default)
   app:
-    image: ghcr.io/roozylabs/prism-app:latest
+    image: ghcr.io/roozylabs/prism-app:${APP_IMAGE_TAG:-latest}
     build:
       context: ./apps/app
       dockerfile: Dockerfile
@@ -154,7 +154,7 @@ services:
 
   # Next.js Frontend Dashboard (Green)
   app-green:
-    image: ghcr.io/roozylabs/prism-app:latest
+    image: ghcr.io/roozylabs/prism-app:${APP_IMAGE_TAG:-latest}
     build:
       context: ./apps/app
       dockerfile: Dockerfile
@@ -185,7 +185,7 @@ services:
 
   # Astro Landing Page Website (Blue - Default)
   web:
-    image: ghcr.io/roozylabs/prism-web:latest
+    image: ghcr.io/roozylabs/prism-web:${WEB_IMAGE_TAG:-latest}
     build:
       context: ./apps/web
       dockerfile: Dockerfile
@@ -211,7 +211,7 @@ services:
 
   # Astro Landing Page Website (Green)
   web-green:
-    image: ghcr.io/roozylabs/prism-web:latest
+    image: ghcr.io/roozylabs/prism-web:${WEB_IMAGE_TAG:-latest}
     build:
       context: ./apps/web
       dockerfile: Dockerfile

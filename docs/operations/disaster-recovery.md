@@ -20,17 +20,20 @@ This runbook covers recovery procedures for 4 major disaster scenarios.
 2. Configure DNS `A` records to point to new VPS Public IP.
 3. Install Docker Engine and Docker Compose.
 4. Clone repo to `/opt/prism/` and restore encrypted `.env` secrets.
-5. Restore latest PostgreSQL backup dump from S3:
+5. Restore the newest PostgreSQL dump from the off-host copy ([backup-recovery.md](./backup-recovery.md)):
    ```bash
    docker compose up -d postgres
-   gunzip < /var/backups/prism/prism_latest.sql.gz | docker compose exec -T postgres psql -U postgres -d prism
+   rclone copy b2:prism-backups/ /var/backups/prism/ --max-age 2d
+   docker exec -i prism-postgres-database sh -c \
+     'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --exit-on-error' \
+     < "$(ls /var/backups/prism/prism_*.dump | sort | tail -n 1)"
    ```
 6. Start remaining application services:
    ```bash
    docker compose up -d
    ```
 7. Configure SSL via Certbot Let's Encrypt.
-8. Verify system health via `/health` endpoint.
+8. Verify readiness via the `/ready` endpoint.
 
 ---
 
