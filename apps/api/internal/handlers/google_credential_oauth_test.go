@@ -34,6 +34,10 @@ func (f *fakeCredentials) Create(_ context.Context, c *models.Credential) error 
 
 const testEncKey = "0123456789abcdef0123456789abcdef"
 
+// testRefreshToken contains dots, which base64 ciphertext never does, so it
+// cannot turn up in the encrypted metadata by chance.
+const testRefreshToken = "plain.refresh.token"
+
 // newGoogleCredentialTest wires the handler to a fake Google. refreshToken is
 // what the token endpoint returns; empty means none.
 func newGoogleCredentialTest(t *testing.T, refreshToken string) (*gin.Engine, *fakeCredentials) {
@@ -101,7 +105,7 @@ func stateCookie(w *httptest.ResponseRecorder) *http.Cookie {
 }
 
 func TestGoogleCredentialLoginChecksProviderAccess(t *testing.T) {
-	r, _ := newGoogleCredentialTest(t, "rt")
+	r, _ := newGoogleCredentialTest(t, testRefreshToken)
 	for name, tc := range map[string]struct {
 		provider, user string
 		allowed        bool
@@ -128,7 +132,7 @@ func TestGoogleCredentialLoginChecksProviderAccess(t *testing.T) {
 }
 
 func TestGoogleCredentialLoginState(t *testing.T) {
-	r, _ := newGoogleCredentialTest(t, "rt")
+	r, _ := newGoogleCredentialTest(t, testRefreshToken)
 	w := get(r, "/api/providers/google/oauth/login?provider_id=mine", "alice")
 
 	loc, err := url.Parse(w.Header().Get("Location"))
@@ -143,7 +147,7 @@ func TestGoogleCredentialLoginState(t *testing.T) {
 }
 
 func TestGoogleCredentialCallbackRequiresState(t *testing.T) {
-	r, creds := newGoogleCredentialTest(t, "rt")
+	r, creds := newGoogleCredentialTest(t, testRefreshToken)
 	for name, tc := range map[string]struct {
 		query  string
 		cookie string
@@ -166,7 +170,7 @@ func TestGoogleCredentialCallbackRequiresState(t *testing.T) {
 }
 
 func TestGoogleCredentialCallbackSavesOwnedCredential(t *testing.T) {
-	r, creds := newGoogleCredentialTest(t, "rt")
+	r, creds := newGoogleCredentialTest(t, testRefreshToken)
 	state := &http.Cookie{Name: credentialOAuthStateCookie, Value: "nonce.mine"}
 
 	w := get(r, "/api/providers/google/oauth/callback?code=c&state=nonce.mine", "alice", state)
@@ -181,11 +185,11 @@ func TestGoogleCredentialCallbackSavesOwnedCredential(t *testing.T) {
 	assert.Equal(t, "org-alice", *saved.OrgID)
 	assert.Equal(t, models.AuthTypeGCPUserOAuth, saved.AuthType)
 	assert.Equal(t, "Gemini (me@example.com)", saved.Name)
-	assert.NotContains(t, saved.EncryptedMetadata.String, "rt", "the refresh token is stored encrypted")
+	assert.NotContains(t, saved.EncryptedMetadata.String, testRefreshToken, "the refresh token is stored encrypted")
 }
 
 func TestGoogleCredentialCallbackRechecksAccess(t *testing.T) {
-	r, creds := newGoogleCredentialTest(t, "rt")
+	r, creds := newGoogleCredentialTest(t, testRefreshToken)
 	// bob has the state for alice's provider, e.g. from a shared link.
 	w := get(r, "/api/providers/google/oauth/callback?code=c&state=n.mine", "bob",
 		&http.Cookie{Name: credentialOAuthStateCookie, Value: "n.mine"})
