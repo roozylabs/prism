@@ -91,7 +91,6 @@ func main() {
 
 	// Repositories (use underlying sql.DB from sqlx)
 	sqlDB := db.DB
-	_, _ = sqlDB.Exec("UPDATE credentials SET status = 'active' WHERE status = 'rate_limited'")
 
 	userRepo := repository.NewUserRepository(sqlDB)
 	sessionRepo := repository.NewSessionRepository(sqlDB)
@@ -260,11 +259,14 @@ func main() {
 	workerMgr.Register("credential-recovery", 1*time.Minute, workers.NewCredentialRecoveryWorker(credentialRepo, cooldown).Run)
 	workerMgr.Start(workerCtx)
 
-	if cfg.AppEnv == "production" {
+	if !cfg.IsDevelopment() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := gin.Default()
+	// gin.Default's logger prints full query strings, which carry SSE session
+	// tokens and OAuth codes.
+	r := gin.New()
+	r.Use(middleware.RequestLogger(), gin.Recovery())
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		log.Fatalf("invalid TRUSTED_PROXIES: %v", err)
 	}
@@ -528,7 +530,7 @@ func main() {
 	registerGatewayRoutes(api.Group("/v1"))
 
 	// Swagger endpoint (dev only)
-	if cfg.AppEnv != "production" {
+	if cfg.IsDevelopment() {
 		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 

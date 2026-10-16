@@ -11,7 +11,7 @@ The root `.env.example` file defines configuration parameters classified into 6 
 
 | Environment Variable | Category | Required in Prod? | Secret? | Default / Example Value | Impact if Missing |
 |----------------------|----------|-------------------|---------|-------------------------|-------------------|
-| `APP_ENV` | Environment | **Required** | No | `production` | Fallbacks to dev defaults. |
+| `APP_ENV` | Environment | Optional | No | `production` | Defaults to `production`; set `development` for local work. |
 | `SERVER_PORT` | Network | Optional | No | `8080` | Listens on port 8080. |
 | `SHUTDOWN_TIMEOUT_SECONDS` | Network | Optional | No | `30` | On SIGTERM the API stops accepting connections and waits this long for in-flight requests and LLM streams before closing them. Keep it below the container `stop_grace_period` (45s in `docker-compose.yml`). |
 | `APP_PORT` | Network | Optional | No | `3000` | Listens on port 3000. |
@@ -21,9 +21,7 @@ The root `.env.example` file defines configuration parameters classified into 6 
 | `POSTGRES_PORT` | Database | Optional | No | `5433` | Connects on port 5433 (host). |
 | `REDIS_PASSWORD` | Redis | **Required** | **YES** | `<SECRET>` | **CRITICAL: Redis authentication fails.** |
 | `REDIS_PORT` | Redis | Optional | No | `6379` | Connects on port 6379. |
-| `JWT_SECRET` | Security | **Required** | **YES** | `<SECRET>` | **CRITICAL: Auth tokens rejected.** |
 | `ENCRYPTION_KEY` | Security | **Required** | **YES** | `<SECRET>` | **CRITICAL: Credential decryption fails.** |
-| `HASH_KEY` | Security | **Required** | **YES** | `<SECRET>` | **CRITICAL: Key hashing fails.** |
 | `BETTER_AUTH_SECRET` | Auth | **Required** | **YES** | `<SECRET>` | Next.js dashboard login fails. |
 | `BETTER_AUTH_URL` | Auth | **Required** | No | `https://app.prism.roozylabs.com` | OAuth callbacks break. |
 | `API_URL` | Internal Net | **Required** | No | `http://api:8080` | App dashboard cannot reach API. |
@@ -36,9 +34,10 @@ The root `.env.example` file defines configuration parameters classified into 6 
 The API gateway validates mandatory configuration at startup in `config.Load()` (`apps/api/internal/config/config.go`):
 
 1. **`ENCRYPTION_KEY` Validation** (`Config.Validate`, called by `cmd/server` before migrations or connections): outside `APP_ENV=development` the server exits if the key is empty, shorter than 32 characters, low-variety, or one of the keys previously committed to this repository. In `development` it only logs a warning. Generate a key with `openssl rand -hex 32`.
-2. **`JWT_SECRET` Validation**: Must be set and non-default.
-3. **Database URL Validation**: Must contain valid PostgreSQL connection string schema.
-4. **Redis URL Validation**: Must contain valid Redis host & password schema.
+2. **`APP_ENV`** defaults to `production`; only an explicit `development` relaxes the checks above and serves Swagger.
+3. **Typed values**: a number or boolean that does not parse (or a negative number) stops the server with an error naming the variable.
+4. **Database URL Validation**: Must contain valid PostgreSQL connection string schema.
+5. **Redis URL Validation**: Must contain valid Redis host & password schema.
 
 If any required secret is missing or set to placeholder defaults in production mode, the application halts immediately with exit code 1 to prevent silent security degradation.
 

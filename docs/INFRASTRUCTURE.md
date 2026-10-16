@@ -136,7 +136,6 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_gateway}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     depends_on:
       postgres:
@@ -152,7 +151,7 @@ services:
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -239,9 +238,6 @@ POSTGRES_PASSWORD=your-secure-postgres-password
 # Redis
 REDIS_PASSWORD=your-secure-redis-password
 
-# JWT Secret (generate with: openssl rand -hex 32)
-JWT_SECRET=your-jwt-secret-here
-
 # Encryption Key (generate with: openssl rand -hex 32)
 ENCRYPTION_KEY=your-encryption-key-here
 
@@ -261,12 +257,30 @@ NEXT_PUBLIC_BETTER_AUTH_URL=https://app.yourdomain.com
 
 Sign-in and sign-up are rate limited per client address (30 requests per 10 minutes) and per account (10 failed sign-ins per 15 minutes), and answer `429` with `Retry-After` beyond that. Cloudflare's Turnstile test tokens are accepted only with `APP_ENV=development`.
 
+`APP_ENV` defaults to `production`; set `APP_ENV=development` explicitly for local work. A malformed number or boolean (`MAX_RETRIES=two`, `RUN_MIGRATIONS=yes please`) stops the server at startup instead of falling back to the default.
+
+### Health checks
+
+`/health` is a liveness probe and answers `200` while the process serves requests. `/ready` answers `200` only when PostgreSQL and Redis respond within 2 seconds, otherwise `503`; the container health checks and the deploy gate use `/ready`.
+
+### Redis failure behaviour
+
+Redis operations time out after 500 ms with one retry (unless `REDIS_URL` sets `dial_timeout`, `read_timeout`, `write_timeout` or `max_retries`). When Redis is unreachable or full, the API keeps serving and degrades as follows:
+
+| Feature | Without Redis |
+| --- | --- |
+| Per-key gateway rate limit, sign-in attempt limits | Not enforced (fail open) |
+| Idempotency keys | Requests run without replay protection |
+| Credential cooldowns | Cooling credentials may be tried again |
+| Async jobs | `POST .../async` answers `500`; queued jobs wait until Redis is back |
+| Live dashboard events (SSE) | Not delivered |
+| `/ready` | `503` |
+
+Redis is capped at `REDIS_MAXMEMORY` (default `512mb`) with `noeviction`: nothing is evicted, so at the cap writes fail as above instead of queued jobs disappearing.
+
 ### 4.2 Generate Secure Secrets
 
 ```bash
-# Generate JWT Secret
-openssl rand -hex 32
-
 # Generate Encryption Key
 openssl rand -hex 32
 
