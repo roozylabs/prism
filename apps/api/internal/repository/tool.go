@@ -17,21 +17,15 @@ func NewToolRepository(db *sql.DB) *ToolRepository {
 	return &ToolRepository{db: db}
 }
 
-const toolColumns = `id, user_id, name, display_name, description, input_schema, enabled, created_at, updated_at`
+const toolColumns = `id, COALESCE(user_id, ''), name, display_name, description, input_schema, enabled, created_at, updated_at`
 
 func scanTool(row interface{ Scan(...interface{}) error }, t *models.Tool) error {
 	return row.Scan(&t.ID, &t.UserID, &t.Name, &t.DisplayName, &t.Description, &t.InputSchema, &t.Enabled, &t.CreatedAt, &t.UpdatedAt)
 }
 
 func (r *ToolRepository) ListByUserID(ctx context.Context, userID string) ([]models.Tool, error) {
-	query := `SELECT ` + toolColumns + ` FROM tools`
-	var args []interface{}
-	if userID != "" {
-		query += ` WHERE user_id = $1`
-		args = append(args, userID)
-	}
-	query += ` ORDER BY created_at DESC`
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+toolColumns+` FROM tools WHERE user_id = $1 ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -16,14 +16,7 @@ type mockAgentFinder struct {
 	err   error
 }
 
-func (m *mockAgentFinder) FindByID(ctx context.Context, id, userID string) (*models.Agent, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.agent, nil
-}
-
-func (m *mockAgentFinder) FindByUserAndName(ctx context.Context, userID, name string) (*models.Agent, error) {
+func (m *mockAgentFinder) FindForUser(ctx context.Context, userID, ref string) (*models.Agent, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

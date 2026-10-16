@@ -112,7 +112,7 @@ func (r *RoutingPolicyRepository) Create(ctx context.Context, p *models.RoutingP
 	}
 
 	if p.IsDefault {
-		if p.UserID != "" && p.UserID != "user_admin" {
+		if p.UserID != "" {
 			_, _ = r.db.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1`, p.UserID)
 		} else {
 			_, _ = r.db.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1 OR user_id IS NULL OR user_id = ''`, p.UserID)
@@ -136,7 +136,7 @@ func (r *RoutingPolicyRepository) Update(ctx context.Context, p *models.RoutingP
 	}
 
 	if p.IsDefault {
-		if p.UserID != "" && p.UserID != "user_admin" {
+		if p.UserID != "" {
 			_, _ = r.db.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1`, p.UserID)
 		} else {
 			_, _ = r.db.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1 OR user_id IS NULL OR user_id = ''`, p.UserID)
@@ -163,7 +163,7 @@ func (r *RoutingPolicyRepository) SetDefault(ctx context.Context, id, userID str
 	}()
 
 	// Reset default for policies belonging to user
-	if userID != "" && userID != "user_admin" {
+	if userID != "" {
 		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1`, userID)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = false WHERE user_id = $1 OR user_id IS NULL OR user_id = ''`, userID)
@@ -173,8 +173,8 @@ func (r *RoutingPolicyRepository) SetDefault(ctx context.Context, id, userID str
 	}
 
 	// Set selected policy as default with user check
-	if userID != "" && userID != "user_admin" {
-		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = true, enabled = true, updated_at = NOW() WHERE id = $1 AND (user_id = $2 OR user_id = 'user_admin' OR user_id = '')`, id, userID)
+	if userID != "" {
+		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = true, enabled = true, updated_at = NOW() WHERE id = $1 AND user_id = $2`, id, userID)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE routing_policies SET is_default = true, enabled = true, updated_at = NOW() WHERE id = $1`, id)
 	}

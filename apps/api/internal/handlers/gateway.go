@@ -736,13 +736,8 @@ func (h *GatewayHandler) applyAgentBoundary(ctx context.Context, req *proxy.Prox
 			}
 		}
 	}
-	if agent == nil {
-		if _, uuidErr := uuid.Parse(agentID); uuidErr == nil {
-			agent, _ = h.agentRepo.FindByID(ctx, agentID, "")
-		}
-		if agent == nil {
-			agent, _ = h.agentRepo.FindByUserAndName(ctx, "", agentID)
-		}
+	if agent == nil && gatewayKey != nil {
+		agent, _ = h.agentRepo.FindForUser(ctx, gatewayKey.UserID, agentID)
 	}
 
 	if agent == nil {

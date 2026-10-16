@@ -50,7 +50,7 @@ func (r *RequestLogRepository) Create(ctx context.Context, log *models.RequestLo
 
 func (r *RequestLogRepository) ListByUserID(ctx context.Context, userID string, limit, offset int) ([]models.RequestLog, error) {
 	whereClause := `(gak.user_id = $1 OR rl.gateway_api_key_id IS NULL OR $1 = '')`
-	if userID != "" && userID != "user_admin" {
+	if userID != "" {
 		whereClause = `gak.user_id = $1`
 	}
 	rows, err := r.db.QueryContext(ctx,
@@ -104,11 +104,7 @@ func (r *RequestLogRepository) ListWithFilter(ctx context.Context, f LogFilter) 
 	argIdx := 1
 
 	if f.UserID != "" {
-		if f.UserID != "user_admin" {
-			where = append(where, fmt.Sprintf("gak.user_id = $%d", argIdx))
-		} else {
-			where = append(where, fmt.Sprintf("(gak.user_id = $%d OR rl.gateway_api_key_id IS NULL)", argIdx))
-		}
+		where = append(where, fmt.Sprintf("gak.user_id = $%d", argIdx))
 		args = append(args, f.UserID)
 		argIdx++
 	}
@@ -396,18 +392,18 @@ func (r *RequestLogRepository) GetProviderHealth(ctx context.Context, userID str
 	var query string
 	var args []interface{}
 
-	if userID != "" && userID != "user_admin" {
+	if userID != "" {
 		query = `SELECT p.id, p.name, p.type, p.enabled,
 		        (SELECT COUNT(*) FROM credentials c WHERE c.provider_id = p.id AND c.enabled = true AND c.status = 'active' AND (c.user_id = $1 OR c.org_id = $1)) as cred_count
 		 FROM providers p
-		 WHERE p.user_id = $1 OR p.user_id IS NULL OR p.user_id IN ('', 'user_admin')
+		 WHERE p.user_id = $1 OR p.user_id IS NULL
 		 ORDER BY p.name`
 		args = []interface{}{userID}
 	} else {
 		query = `SELECT p.id, p.name, p.type, p.enabled,
 		        (SELECT COUNT(*) FROM credentials c WHERE c.provider_id = p.id AND c.enabled = true AND c.status = 'active') as cred_count
 		 FROM providers p
-		 WHERE p.user_id IS NULL OR p.user_id IN ('', 'user_admin')
+		 WHERE p.user_id IS NULL
 		 ORDER BY p.name`
 	}
 

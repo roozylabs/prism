@@ -53,7 +53,7 @@ func (r *CredentialRepository) ListByProviderID(ctx context.Context, providerID 
 		args = append(args, providerID)
 	}
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}
@@ -91,7 +91,7 @@ func (r *CredentialRepository) ListWithFilter(ctx context.Context, providerID, s
 	if len(userID) > 0 {
 		uid = userID[0]
 	}
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		countArgs = append(countArgs, uid)
 		filter := fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
@@ -172,7 +172,7 @@ func (r *CredentialRepository) FindByID(ctx context.Context, id string, userID .
 	var args []interface{}
 	args = append(args, id)
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query = `SELECT ` + credentialCols + `
 		         FROM credentials c
@@ -217,7 +217,7 @@ func (r *CredentialRepository) Update(ctx context.Context, c *models.Credential,
 		uid = userID[0]
 	}
 	var err error
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		_, err = r.db.ExecContext(ctx,
 			`UPDATE credentials SET name=$1, encrypted_key=$2, key_prefix=$3, auth_type=$4, encrypted_metadata=$5, priority=$6,
 			        enabled=$7, status=$8, updated_at=$9
@@ -242,7 +242,7 @@ func (r *CredentialRepository) Delete(ctx context.Context, id string, userID ...
 	if len(userID) > 0 {
 		uid = userID[0]
 	}
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		_, err := r.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = $1 AND (user_id = $2 OR org_id = $2)`, id, uid)
 		return err
 	}
@@ -270,7 +270,7 @@ func (r *CredentialRepository) FindActiveByProviderID(ctx context.Context, provi
 		         WHERE (p.type = $1 OR p.name ILIKE $1) AND c.enabled = true AND c.status NOT IN ('invalid', 'disabled')`
 	}
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}
@@ -302,7 +302,7 @@ func (r *CredentialRepository) FindAllActiveByProviderID(ctx context.Context, pr
 		         WHERE (p.type = $1 OR p.name ILIKE $1) AND c.enabled = true AND c.status NOT IN ('invalid', 'disabled')`
 	}
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}
@@ -433,7 +433,7 @@ func (r *CredentialRepository) FindRoundRobin(ctx context.Context, providerID st
 	var args []interface{}
 	args = append(args, providerID)
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}
@@ -477,7 +477,7 @@ func (r *CredentialRepository) FindLRU(ctx context.Context, providerID string, e
 	var args []interface{}
 	args = append(args, providerID)
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}
@@ -526,7 +526,7 @@ func (r *CredentialRepository) CountActiveByProviderID(ctx context.Context, prov
 	var args []interface{}
 	args = append(args, providerID)
 
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}
@@ -544,7 +544,7 @@ func (r *CredentialRepository) ListActiveProviderIDs(ctx context.Context, userOr
 
 	query := `SELECT DISTINCT provider_id FROM credentials c WHERE c.enabled = true AND c.status != 'invalid' AND (c.encrypted_key IS NOT NULL AND c.encrypted_key != '')`
 	var args []interface{}
-	if uid != "" && uid != "user_admin" {
+	if uid != "" {
 		args = append(args, uid)
 		query += fmt.Sprintf(" AND (c.user_id = $%d OR c.org_id = $%d)", len(args), len(args))
 	}

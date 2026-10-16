@@ -68,7 +68,7 @@ func (h *ProviderHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 	userID := c.GetString("userId")
 	provider, err := h.providers.FindByID(c.Request.Context(), id)
-	if err != nil || (userID != "" && provider.UserID != userID && provider.UserID != "user_admin" && provider.UserID != "") {
+	if err != nil || (userID != "" && provider.UserID != userID && !isSharedProvider(provider)) {
 		httputil.RespondNotFound(c, "Provider not found", err, "PROVIDER_NOT_FOUND")
 		return
 	}
@@ -188,5 +188,5 @@ func (h *ProviderHandler) ownedProvider(c *gin.Context, id, userID string) (*mod
 
 // isSharedProvider reports whether p is a system provider every user can use.
 func isSharedProvider(p *models.Provider) bool {
-	return p.UserID == "" || p.UserID == "user_admin"
+	return p.UserID == ""
 }
