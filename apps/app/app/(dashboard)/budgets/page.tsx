@@ -35,7 +35,7 @@ export default function BudgetsPage() {
   const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
   const [editingQuota, setEditingQuota] = useState<ApiTenantQuota | null>(null);
 
-  const quotasList: ApiTenantQuota[] = Array.isArray(quotasData) ? quotasData : (quotasData as unknown as { data?: ApiTenantQuota[] })?.data ?? [];
+  const quotasList: ApiTenantQuota[] = quotasData ?? [];
 
   const openQuotaEdit = (q: ApiTenantQuota) => {
     setEditingQuota(q);

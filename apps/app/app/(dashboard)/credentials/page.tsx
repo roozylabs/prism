@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { PageHeader } from '@/components/molecules/PageHeader';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/molecules/Card';
@@ -23,9 +23,21 @@ import {
 } from '@/hooks/mutations/useCredentialMutations';
 import { CredentialFormDialog } from './_components/CredentialFormDialog';
 
+const PAGE_SIZE = 20;
+
 export default function CredentialsPage() {
   const [selectedProviderId, setSelectedProviderId] = useState<ProviderFilterId>('all');
-  const { data, isLoading, isError, refetch } = useCredentialsQuery(selectedProviderId);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const { data, isLoading, isError, refetch } = useCredentialsQuery(selectedProviderId, {
+    page,
+    limit: PAGE_SIZE,
+    search: search || undefined,
+  });
+  const onSearchChange = useCallback((term: string) => {
+    setSearch(term);
+    setPage(1);
+  }, []);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
 
@@ -63,7 +75,8 @@ export default function CredentialsPage() {
     }
   };
 
-  const credentialsList: ApiCredential[] = Array.isArray(data) ? data : (data as unknown as { data?: ApiCredential[] })?.data ?? [];
+  const credentialsList: ApiCredential[] = data?.data ?? [];
+  const totalCredentials = data?.total ?? 0;
 
   const columns: Column<ApiCredential>[] = [
     {
@@ -211,7 +224,13 @@ export default function CredentialsPage() {
 
       <div className="space-y-6">
         <div className="flex items-center gap-2">
-          <Select value={selectedProviderId} onValueChange={(val) => setSelectedProviderId(val as ProviderFilterId)}>
+          <Select
+            value={selectedProviderId}
+            onValueChange={(val) => {
+              setSelectedProviderId(val as ProviderFilterId);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Filter by Provider" />
             </SelectTrigger>
@@ -232,8 +251,15 @@ export default function CredentialsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {credentialsList.length > 0 ? (
-              <DataTable dataSource={credentialsList} columns={columns} rowKey="id" pageSize={10} searchPlaceholder="Search credentials by label..." />
+            {totalCredentials > 0 || search ? (
+              <DataTable
+                dataSource={credentialsList}
+                columns={columns}
+                rowKey="id"
+                pageSize={PAGE_SIZE}
+                searchPlaceholder="Search credentials by label..."
+                server={{ total: totalCredentials, page, onPageChange: setPage, onSearchChange }}
+              />
             ) : (
               <EmptyState
                 title="No Credentials Found"

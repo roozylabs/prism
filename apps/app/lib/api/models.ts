@@ -1,28 +1,28 @@
 import { api } from './client';
 import { ApiModel } from './types/model';
 import { prependSmartRouterModel } from './smart-router';
+import { PageParams, PaginatedResult } from './types/common';
+import { fetchAllPages } from './pagination';
 
+/** One page of models, for the models table. */
+export async function apiGetModelsPage(
+  params: PageParams & { providerId?: string },
+): Promise<PaginatedResult<ApiModel>> {
+  const { providerId, ...query } = params;
+  const url = providerId && providerId !== 'all' ? `/providers/${providerId}/models` : '/models';
+  const response = await api.get<PaginatedResult<ApiModel>>(url, { params: query });
+  return response.data;
+}
+
+/** Every model of a provider, with the smart router first, for pickers. */
 export async function apiGetModels(providerId?: string): Promise<ApiModel[]> {
-  const url = providerId ? `/providers/${providerId}/models` : '/models';
-  const response = await api.get<ApiModel[] | { data: ApiModel[] }>(url);
-  const raw = response.data;
-  const models = Array.isArray(raw)
-    ? raw
-    : (raw && typeof raw === 'object' && 'data' in raw && Array.isArray(raw.data))
-    ? raw.data
-    : [];
+  const models = await fetchAllPages((page, limit) => apiGetModelsPage({ providerId, page, limit }));
   return prependSmartRouterModel(models);
 }
 
+/** Every model, with the smart router first, for pickers. */
 export async function apiGetAllModels(): Promise<ApiModel[]> {
-  const response = await api.get<ApiModel[] | { data: ApiModel[] }>('/models');
-  const raw = response.data;
-  const models = Array.isArray(raw)
-    ? raw
-    : (raw && typeof raw === 'object' && 'data' in raw && Array.isArray(raw.data))
-    ? raw.data
-    : [];
-  return prependSmartRouterModel(models);
+  return apiGetModels();
 }
 
 export async function apiCreateModel(providerId: string, data: Partial<ApiModel>): Promise<ApiModel> {

@@ -1,9 +1,13 @@
 import { api } from './client';
 import { ApiCredential, ApiTestCredentialResult } from './types/provider';
+import { PageParams, PaginatedResult } from './types/common';
 
-export async function apiGetCredentials(providerId?: string): Promise<ApiCredential[]> {
-  const url = providerId ? `/providers/${providerId}/credentials` : '/credentials';
-  const response = await api.get<ApiCredential[]>(url);
+export async function apiGetCredentials(
+  providerId?: string,
+  params?: PageParams,
+): Promise<PaginatedResult<ApiCredential>> {
+  const url = providerId && providerId !== 'all' ? `/providers/${providerId}/credentials` : '/credentials';
+  const response = await api.get<PaginatedResult<ApiCredential>>(url, { params });
   return response.data;
 }
 

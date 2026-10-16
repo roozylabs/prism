@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -26,6 +26,8 @@ import {
 import { useCreateGatewayKey } from "@/hooks/queries/useGatewayKeysQuery";
 import type { ApiProvider } from "@/lib/api";
 import { toast } from "sonner";
+import { SecretReveal } from "@/components/molecules/SecretReveal";
+import { getErrorMessage } from "@/types/ui";
 
 import { gatewayKeySchema, GatewayKeyFormValues } from "@/features/gateway-keys/schemas/create-gateway-key.schema";
 
@@ -47,6 +49,9 @@ export function GatewayKeyFormDialog({
   providers,
 }: GatewayKeyFormDialogProps) {
   const createMutation = useCreateGatewayKey();
+  // The API returns the secret only in the create response; it is shown here
+  // once and dropped when the dialog closes.
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
 
   const form = useForm<GatewayKeyFormValues>({
     resolver: zodResolver(gatewayKeySchema),
@@ -56,7 +61,10 @@ export function GatewayKeyFormDialog({
   const { reset } = form;
 
   useEffect(() => {
-    if (open) reset(defaultValues);
+    if (open) {
+      reset(defaultValues);
+      setCreatedKey(null);
+    }
   }, [open, reset]);
 
   const onSubmit = (values: GatewayKeyFormValues) => {
@@ -67,12 +75,12 @@ export function GatewayKeyFormDialog({
         rateLimit: Number(values.rateLimit) || undefined,
       },
       {
-        onSuccess: () => {
+        onSuccess: (created) => {
           toast.success("Gateway key created");
-          onOpenChange(false);
+          setCreatedKey(created.key);
         },
-        onError: () => {
-          toast.error("Failed to create gateway key");
+        onError: (err) => {
+          toast.error(`Failed to create gateway key: ${getErrorMessage(err)}`);
         },
       },
     );
@@ -82,11 +90,23 @@ export function GatewayKeyFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create Gateway Key</DialogTitle>
+          <DialogTitle>{createdKey ? "Gateway Key Created" : "Create Gateway Key"}</DialogTitle>
           <DialogDescription>
-            Generate a new API key to authenticate requests through the gateway.
+            {createdKey
+              ? "Use this key as the bearer token for requests to the gateway."
+              : "Generate a new API key to authenticate requests through the gateway."}
           </DialogDescription>
         </DialogHeader>
+        {createdKey ? (
+          <div className="space-y-4 py-4">
+            <SecretReveal label="Gateway Secret Key" secret={createdKey} />
+            <DialogFooter>
+              <Button type="button" variant="prismViolet" onClick={() => onOpenChange(false)}>
+                Done
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
             <FormField
@@ -171,6 +191,7 @@ export function GatewayKeyFormDialog({
             </DialogFooter>
           </form>
         </Form>
+        )}
       </DialogContent>
     </Dialog>
   );

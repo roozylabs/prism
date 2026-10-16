@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { PageHeader } from '@/components/molecules/PageHeader';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/molecules/Card';
@@ -13,12 +13,25 @@ import { ApiRequestLog } from '@/lib/api';
 import { ErrorState, EmptyState } from '@/components/molecules/StateAlerts';
 import { Activity, Check, Copy, Eye, RefreshCw, Server } from 'lucide-react';
 
+const PAGE_SIZE = 25;
+
 export default function LogsPage() {
-  const { data, isLoading, isError, refetch } = useLogsQuery();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const { data, isLoading, isError, refetch } = useLogsQuery({
+    page,
+    limit: PAGE_SIZE,
+    search: search || undefined,
+  });
+  const onSearchChange = useCallback((term: string) => {
+    setSearch(term);
+    setPage(1);
+  }, []);
   const [selectedLog, setSelectedLog] = useState<ApiRequestLog | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const logsList = (data?.data ?? []) as ApiRequestLog[];
+  const totalLogs = data?.total ?? 0;
 
   const [copiedError, setCopiedError] = useState(false);
 
@@ -127,7 +140,7 @@ export default function LogsPage() {
               description="Could not connect to Prism Request Logs Inspector."
               onRetry={refetch}
             />
-          ) : !isLoading && logsList.length === 0 ? (
+          ) : !isLoading && totalLogs === 0 && !search ? (
             <EmptyState
               title="No Request Logs"
               description="No incoming HTTP proxy requests logged yet."
@@ -138,9 +151,10 @@ export default function LogsPage() {
               columns={columns}
               rowKey="id"
               loading={isLoading}
-              pageSize={10}
+              pageSize={PAGE_SIZE}
               searchPlaceholder="Search logs by path, model, or client app..."
               onRefresh={refetch}
+              server={{ total: totalLogs, page, onPageChange: setPage, onSearchChange }}
             />
           )}
         </CardContent>

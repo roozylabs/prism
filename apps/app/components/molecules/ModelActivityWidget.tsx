@@ -32,7 +32,7 @@ interface SSEEventPayload {
 
 export function ModelActivityWidget({ collapsed }: { collapsed?: boolean }) {
   const { lastEvent } = useSSE();
-  const { data: logsData } = useLogsQuery();
+  const { data: logsData } = useLogsQuery({ limit: 1 });
 
   const latestLog: ApiRequestLog | undefined = logsData?.data?.[0];
 

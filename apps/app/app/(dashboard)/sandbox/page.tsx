@@ -43,7 +43,7 @@ import {
 } from "@/components/atoms/Tooltip";
 import { useModelsListQuery } from "@/hooks/queries/useModelsListQuery";
 import { useAgentsQuery } from "@/hooks/queries/useAgentsQuery";
-import { useGatewayKeysQuery } from "@/hooks/queries/useGatewayKeysQuery";
+import { useAllGatewayKeysQuery } from "@/hooks/queries/useGatewayKeysQuery";
 import { usePoliciesQuery } from "@/hooks/queries/usePoliciesQuery";
 import type { ApiModel } from "@/lib/api";
 import { toast } from "sonner";
@@ -273,12 +273,12 @@ function FormattedSandboxOutput({ content }: { content: string }) {
 export default function SandboxPage() {
   const { data: modelsData } = useModelsListQuery();
   const { data: agentsData } = useAgentsQuery();
-  const { data: keysData } = useGatewayKeysQuery();
+  const { data: keysData } = useAllGatewayKeysQuery();
   const { data: policiesData } = usePoliciesQuery();
 
   const modelsList: ApiModel[] = Array.isArray(modelsData) ? modelsData : (modelsData as unknown as { data?: ApiModel[] })?.data ?? [];
   const agentsList = Array.isArray(agentsData) ? agentsData : [];
-  const keysList = keysData?.data ?? [];
+  const keysList = keysData ?? [];
   const policiesList = Array.isArray(policiesData) ? policiesData : [];
 
   const sandboxMutation = useSandboxExecutionMutation();

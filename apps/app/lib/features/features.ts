@@ -10,7 +10,8 @@ export type FeatureFlagKey =
   | 'paperclip_orchestrator'
   | 'merkle_audit_verification'
   | 'custom_role_builder'
-  | 'vault_kms_byok';
+  | 'vault_kms_byok'
+  | 'billing';
 
 export interface ApiFeaturesResponse {
   version: string;
@@ -31,4 +32,6 @@ export const DEFAULT_FEATURE_FLAGS: Record<FeatureFlagKey, boolean> = {
   merkle_audit_verification: false,
   custom_role_builder: false,
   vault_kms_byok: false,
+  // Plans and invoices are placeholders until billing is real (FEATURE_FLAG_BILLING).
+  billing: false,
 };

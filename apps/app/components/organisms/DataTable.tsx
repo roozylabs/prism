@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Input } from '@/components/atoms/Input';
 import { Button } from '@/components/atoms/Button';
 import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, MoreHorizontal } from 'lucide-react';
@@ -27,6 +27,20 @@ export interface DataTableProps<T> {
   emptyText?: string;
   className?: string;
   onRefresh?: () => void;
+  /**
+   * Server-side paging: dataSource is one page, the total and the current
+   * page come from the API, and searching asks the parent to refetch. Without
+   * it the table pages, searches and counts over dataSource itself.
+   */
+  server?: ServerPaging;
+}
+
+export interface ServerPaging {
+  total: number;
+  page: number;
+  onPageChange: (page: number) => void;
+  /** Called with the search term after typing pauses. */
+  onSearchChange?: (term: string) => void;
 }
 
 // Builds a windowed list of page numbers with ellipsis markers for large datasets.
@@ -59,9 +73,24 @@ export function DataTable<T extends object>({
   emptyText = 'No data available',
   className,
   onRefresh,
+  server,
 }: DataTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [localPage, setLocalPage] = useState(1);
+  const currentPage = server ? server.page : localPage;
+  const setCurrentPage = (next: number | ((p: number) => number)) => {
+    const value = typeof next === 'function' ? next(currentPage) : next;
+    if (server) server.onPageChange(value);
+    else setLocalPage(value);
+  };
+
+  // In server mode the parent searches; tell it once typing pauses.
+  const onSearchChange = server?.onSearchChange;
+  useEffect(() => {
+    if (!onSearchChange) return;
+    const timer = setTimeout(() => onSearchChange(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm, onSearchChange]);
   const [sortConfig, setSortConfig] = useState<{
     key: string | null;
     direction: 'asc' | 'desc' | null;
@@ -70,13 +99,13 @@ export function DataTable<T extends object>({
   // Simple client-side search filter
   const filteredData = useMemo(() => {
     return dataSource.filter((item) => {
-      if (!searchTerm) return true;
+      if (!searchTerm || server) return true;
       const term = searchTerm.toLowerCase();
       return Object.values(item).some(
         (val) => val != null && String(val).toLowerCase().includes(term)
       );
     });
-  }, [dataSource, searchTerm]);
+  }, [dataSource, searchTerm, server]);
 
   // Client-side sort
   const sortedData = useMemo(() => {
@@ -114,8 +143,11 @@ export function DataTable<T extends object>({
     });
   }, [filteredData, sortConfig, columns]);
 
-  const totalPages = Math.ceil(sortedData.length / pageSize) || 1;
-  const paginatedData = sortedData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalItems = server ? server.total : sortedData.length;
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const paginatedData = server
+    ? sortedData
+    : sortedData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const getRowKey = (item: T, index: number): string => {
     if (typeof rowKey === 'function') return rowKey(item);
@@ -151,7 +183,7 @@ export function DataTable<T extends object>({
       {showTopBar && (
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">
-            Total: <strong className="font-mono text-foreground">{sortedData.length}</strong> items
+            Total: <strong className="font-mono text-foreground">{totalItems}</strong> items
           </span>
           <div className="flex items-center gap-2 max-w-xs flex-1 self-end sm:self-auto">
             {showSearch && (

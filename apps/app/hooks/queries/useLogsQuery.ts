@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { apiGetLogs } from '@/lib/api';
 
 export function useLogsQuery(params?: {
@@ -13,5 +13,6 @@ export function useLogsQuery(params?: {
   return useQuery({
     queryKey: ['request-logs', params],
     queryFn: () => apiGetLogs(params),
+    placeholderData: keepPreviousData,
   });
 }

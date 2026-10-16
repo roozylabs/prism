@@ -55,3 +55,16 @@ func TestFeatureFlags_EnvVarOverride(t *testing.T) {
 		t.Errorf("expected smart_router_auto to be overridden to false by env var")
 	}
 }
+
+func TestBillingIsOffUnlessSwitchedOn(t *testing.T) {
+	m := GetManager()
+	for _, plan := range []string{"", "free", "pro", "team", "enterprise"} {
+		if m.IsEnabled(FlagBilling, plan) {
+			t.Fatalf("billing enabled for plan %q without FEATURE_FLAG_BILLING", plan)
+		}
+	}
+	t.Setenv("FEATURE_FLAG_BILLING", "true")
+	if !m.IsEnabled(FlagBilling, "") {
+		t.Fatal("FEATURE_FLAG_BILLING=true does not enable billing")
+	}
+}
