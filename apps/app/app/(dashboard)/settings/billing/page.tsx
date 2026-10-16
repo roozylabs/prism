@@ -12,8 +12,30 @@ import { CreditCard, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/molecules/ConfirmDialog';
+import { FeatureGate } from '@/components/molecules/FeatureGate';
 
+// Billing is a placeholder (nothing is stored or charged) and its API routes
+// exist only with FEATURE_FLAG_BILLING, so the page stays behind the flag.
 export default function BillingPage() {
+  return (
+    <FeatureGate
+      flag="billing"
+      fallback={
+        <AppLayout>
+          <PageHeader title="Billing & Subscription Plans" />
+          <EmptyState
+            title="Billing is not available yet"
+            description="Plans and invoices will appear here once billing is enabled for this deployment."
+          />
+        </AppLayout>
+      }
+    >
+      <BillingContent />
+    </FeatureGate>
+  );
+}
+
+function BillingContent() {
   const { data: plansData, isLoading: plansLoading, isError: plansError, refetch: refetchPlans } = useBillingPlansQuery();
   const { data: subData, isLoading: subLoading, isError: subError, refetch: refetchSub } = useBillingSubscriptionQuery();
   const { data: invoicesData, isLoading: invoicesLoading, isError: invoicesError, refetch: refetchInvoices } = useBillingInvoicesQuery();

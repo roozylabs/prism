@@ -11,7 +11,8 @@ import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage, FormDes
 import { Input } from '@/components/atoms/Input';
 import { Button } from '@/components/atoms/Button';
 import { Badge } from '@/components/atoms/Badge';
-import { CheckCircle2, ArrowRight, LogOut, Zap, User as UserIcon, Copy, Check, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, ArrowRight, LogOut, Zap, User as UserIcon } from 'lucide-react';
+import { SecretReveal } from '@/components/molecules/SecretReveal';
 import { onboardingSchema, OnboardingValues } from '@/features/onboarding/schemas/onboarding.schema';
 import { useAuth } from '@/context/AuthContext';
 import { useUserPermissionsQuery } from '@/hooks/queries/useUserPermissionsQuery';
@@ -27,7 +28,6 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [justCompleted, setJustCompleted] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const { data: permissions, isLoading: permissionsLoading } = useUserPermissionsQuery();
   const { mutateAsync: completeOnboarding, isPending: loading } = useOnboardingMutation();
@@ -75,15 +75,6 @@ export default function OnboardingPage() {
     const isValid = await form.trigger(['organizationName', 'workspaceName']);
     if (isValid) {
       setStep(2);
-    }
-  };
-
-  const handleCopyKey = () => {
-    if (createdKey) {
-      navigator.clipboard.writeText(createdKey);
-      setCopied(true);
-      toast.success('Gateway API key copied to clipboard.');
-      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -218,28 +209,7 @@ export default function OnboardingPage() {
             <div className="space-y-4 text-center">
               <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
               
-              <div className="rounded-none border border-border bg-card/80 p-3.5 font-mono text-xs text-left space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground text-[10px] uppercase font-semibold">Generated Gateway Secret Key</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCopyKey}
-                    className="h-6 px-2 text-[11px] gap-1 cursor-pointer font-sans"
-                  >
-                    {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                    <span>{copied ? 'Copied' : 'Copy Key'}</span>
-                  </Button>
-                </div>
-                <p className="font-mono text-xs text-emerald-400 bg-background/60 p-2.5 rounded border border-border/60 break-all select-all">
-                  {createdKey || 'gw_sk_live_...'}
-                </p>
-                <div className="flex items-start gap-1.5 text-[11px] text-amber-400/90 font-sans mt-2 bg-amber-500/10 p-2 rounded border border-amber-500/20">
-                  <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>Please copy your API key now and store it securely. For security reasons, you will not be able to view this full key again.</span>
-                </div>
-              </div>
+              <SecretReveal label="Generated Gateway Secret Key" secret={createdKey ?? ''} />
 
               <Button
                 variant="prismViolet"

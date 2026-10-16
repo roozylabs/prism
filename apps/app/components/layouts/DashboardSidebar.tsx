@@ -27,6 +27,8 @@ import {
   Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DEFAULT_FEATURE_FLAGS, type FeatureFlagKey } from '@/lib/features/features';
+import { useFeatureFlagsQuery } from '@/hooks/queries/useFeatureFlags';
 import { Button } from '@/components/atoms/Button';
 import { ModelActivityWidget } from '@/components/molecules/ModelActivityWidget';
 import { useSidebarStore } from '@/stores/useSidebarStore';
@@ -37,6 +39,8 @@ interface NavItem {
   label: string;
   href: AppRoutes;
   icon: ReactNode;
+  /** Shown only while this feature flag is on. */
+  flag?: FeatureFlagKey;
 }
 
 interface NavGroup {
@@ -90,8 +94,8 @@ const navGroups: NavGroup[] = [
     title: 'ORGANIZATION',
     items: [
       { key: AppRoutes.SETTINGS_MEMBERS, label: 'Team Members', href: AppRoutes.SETTINGS_MEMBERS, icon: <Users className="h-4 w-4" /> },
-      { key: AppRoutes.BILLING, label: 'Billing & Plans', href: AppRoutes.BILLING, icon: <CreditCard className="h-4 w-4" /> },
-      { key: AppRoutes.SETTINGS, label: 'Settings', href: AppRoutes.SETTINGS, icon: <Settings className="h-4 w-4" /> },
+      { key: AppRoutes.BILLING, label: 'Billing & Plans', href: AppRoutes.BILLING, icon: <CreditCard className="h-4 w-4" />, flag: 'billing' },
+      { key: AppRoutes.SETTINGS_ORGANIZATION, label: 'Settings', href: AppRoutes.SETTINGS_ORGANIZATION, icon: <Settings className="h-4 w-4" /> },
     ],
   },
 ];
@@ -99,6 +103,8 @@ const navGroups: NavGroup[] = [
 export function DashboardSidebar() {
   const pathname = usePathname();
   const { collapsed, toggleCollapsed } = useSidebarStore();
+  const { data: features } = useFeatureFlagsQuery();
+  const isOn = (flag: FeatureFlagKey) => features?.flags?.[flag] ?? DEFAULT_FEATURE_FLAGS[flag] ?? false;
 
   return (
     <aside
@@ -140,7 +146,7 @@ export function DashboardSidebar() {
                 {group.title}
               </h4>
             )}
-            {group.items.map((item) => {
+            {group.items.filter((item) => !item.flag || isOn(item.flag)).map((item) => {
               const isActive = pathname === item.href || (item.href !== AppRoutes.HOME && pathname.startsWith(item.href));
               return (
                 <Link

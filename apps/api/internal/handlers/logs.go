@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/roozylabs/prism/internal/httputil"
-	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/repository"
 )
 
@@ -34,31 +33,7 @@ func (h *LogsHandler) List(c *gin.Context) {
 		status, _ = strconv.Atoi(s)
 	}
 
-	limit := 10
-	if l := c.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	} else if l := c.Query("pageSize"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	}
-
-	page := 1
-	if p := c.Query("page"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 {
-			page = n
-		}
-	}
-
-	offset := (page - 1) * limit
-	if o := c.Query("offset"); o != "" {
-		if n, err := strconv.Atoi(o); err == nil && n >= 0 {
-			offset = n
-			page = (offset / limit) + 1
-		}
-	}
+	pg := httputil.ParsePage(c)
 
 	logs, total, err := h.logs.ListWithFilter(c.Request.Context(), repository.LogFilter{
 		UserID:   userID,
@@ -67,27 +42,15 @@ func (h *LogsHandler) List(c *gin.Context) {
 		Status:   status,
 		Search:   search,
 		AgentID:  agentID,
-		Limit:    limit,
-		Offset:   offset,
+		Limit:    pg.Limit,
+		Offset:   pg.Offset,
 	})
 	if err != nil {
 		httputil.RespondInternalError(c, "Failed to list request logs", err, "LOGS_LIST_FAILED")
 		return
 	}
 
-	if logs == nil {
-		logs = []models.RequestLog{}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data": logs,
-		"meta": gin.H{
-			"total":    total,
-			"page":     page,
-			"limit":    limit,
-			"pageSize": limit,
-		},
-	})
+	httputil.RespondPage(c, pg, logs, int64(total))
 }
 
 func (h *LogsHandler) GetAnalytics(c *gin.Context) {

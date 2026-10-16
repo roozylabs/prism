@@ -57,7 +57,7 @@ export default function DashboardPage() {
   const [dateRange, setDateRange] = useState<string>('30d');
   const { data: stats, isLoading, isError: isStatsError, refetch: refetchStats } = useDashboardStatsQuery(dateRange);
   const { data: usageData, refetch: refetchUsage } = useUsageChartQuery(dateRange);
-  const { data: logsData } = useLogsQuery();
+  const { data: logsData } = useLogsQuery({ limit: 10 });
   const { data: healthData } = useDashboardHealthQuery();
 
   const rangeLabelMap: Record<string, string> = {

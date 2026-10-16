@@ -17,6 +17,7 @@ import (
 	"github.com/roozylabs/prism/internal/authz"
 	"github.com/roozylabs/prism/internal/config"
 	"github.com/roozylabs/prism/internal/database"
+	"github.com/roozylabs/prism/internal/featureflags"
 	"github.com/roozylabs/prism/internal/handlers"
 	"github.com/roozylabs/prism/internal/middleware"
 	"github.com/roozylabs/prism/internal/proxy"
@@ -381,12 +382,14 @@ func main() {
 			protected.GET("/quotas/:target_type/:target_id", requirePermission("quota:read"), quotaHandler.Get)
 			protected.PUT("/quotas/:target_type/:target_id", requirePermission("quota:update"), quotaHandler.Update)
 
-			// Multi-Tier Billing & Subscriptions
-			protected.GET("/billing/plans", requirePermission("billing:read"), billingHandler.ListPlans)
-			protected.GET("/billing/subscription", requirePermission("billing:read"), billingHandler.GetSubscription)
-			protected.POST("/billing/subscription/upgrade", requirePermission("billing:manage"), billingHandler.UpgradeSubscription)
-			protected.GET("/billing/invoices", requirePermission("billing:read"), billingHandler.ListInvoices)
-			protected.GET("/billing/usage", requirePermission("billing:read"), billingHandler.GetUsage)
+			// Billing is a placeholder (nothing is stored or charged), so its
+			// routes exist only with FEATURE_FLAG_BILLING=true.
+			billingEnabled := middleware.RequireFeature(featureflags.FlagBilling)
+			protected.GET("/billing/plans", billingEnabled, requirePermission("billing:read"), billingHandler.ListPlans)
+			protected.GET("/billing/subscription", billingEnabled, requirePermission("billing:read"), billingHandler.GetSubscription)
+			protected.POST("/billing/subscription/upgrade", billingEnabled, requirePermission("billing:manage"), billingHandler.UpgradeSubscription)
+			protected.GET("/billing/invoices", billingEnabled, requirePermission("billing:read"), billingHandler.ListInvoices)
+			protected.GET("/billing/usage", billingEnabled, requirePermission("billing:read"), billingHandler.GetUsage)
 
 			// Dashboard
 			protected.GET("/dashboard/stats", dashboardHandler.GetStats)

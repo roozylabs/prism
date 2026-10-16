@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { PageHeader } from '@/components/molecules/PageHeader';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/molecules/Card';
@@ -16,14 +16,27 @@ import { KeyRound, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { GatewayKeyFormDialog } from './_components/GatewayKeyFormDialog';
 
+const PAGE_SIZE = 20;
+
 export default function GatewayKeysPage() {
-  const { data, isLoading, isError, refetch } = useGatewayKeysQuery();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const { data, isLoading, isError, refetch } = useGatewayKeysQuery({
+    page,
+    limit: PAGE_SIZE,
+    search: search || undefined,
+  });
+  const onSearchChange = useCallback((term: string) => {
+    setSearch(term);
+    setPage(1);
+  }, []);
   const deleteMutation = useDeleteGatewayKey();
   const { data: providers } = useProvidersQuery();
 
   const [modalOpen, setModalOpen] = useState(false);
 
   const list = data?.data ?? [];
+  const total = data?.total ?? 0;
 
   const handleDelete = (key: ApiGatewayKey) => {
     deleteMutation.mutate(key.id, {
@@ -123,7 +136,7 @@ export default function GatewayKeysPage() {
 
       {isError ? (
         <ErrorState onRetry={refetch} />
-      ) : !isLoading && list.length === 0 ? (
+      ) : !isLoading && total === 0 && !search ? (
         <EmptyState
           title="No gateway keys"
           description="Create your first API key to start routing requests through the gateway."
@@ -148,9 +161,10 @@ export default function GatewayKeysPage() {
               columns={columns}
               rowKey="id"
               loading={isLoading}
-              pageSize={10}
+              pageSize={PAGE_SIZE}
               searchPlaceholder="Search gateway keys..."
               onRefresh={refetch}
+              server={{ total, page, onPageChange: setPage, onSearchChange }}
             />
           </CardContent>
         </Card>

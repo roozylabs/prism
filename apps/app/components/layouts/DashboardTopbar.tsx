@@ -1,5 +1,6 @@
 'use client';
 
+import { FeatureGate } from '@/components/molecules/FeatureGate';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/molecules/ThemeToggle';
 import { StatusDot } from '@/components/atoms/Badge';
@@ -16,7 +17,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useDashboardHealthQuery } from '@/hooks/queries/useDashboardQuery';
 import { AppRoutes } from '@/constants/routes';
-import { Settings, Building, CreditCard, LogOut, Users } from 'lucide-react';
+import { Building, CreditCard, LogOut, Users } from 'lucide-react';
 
 function getUserInitials(name?: string, email?: string): string {
   if (name && name.trim()) {
@@ -93,16 +94,9 @@ export function DashboardTopbar() {
             <DropdownMenuSeparator />
 
             <DropdownMenuItem asChild>
-              <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
-                <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-                <span>General Settings</span>
-              </Link>
-            </DropdownMenuItem>
-
-            <DropdownMenuItem asChild>
-              <Link href={AppRoutes.SETTINGS} className="flex items-center gap-2 cursor-pointer">
+              <Link href={AppRoutes.SETTINGS_ORGANIZATION} className="flex items-center gap-2 cursor-pointer">
                 <Building className="h-3.5 w-3.5 text-muted-foreground" />
-                <span>Organization</span>
+                <span>Organization Settings</span>
               </Link>
             </DropdownMenuItem>
 
@@ -113,12 +107,14 @@ export function DashboardTopbar() {
               </Link>
             </DropdownMenuItem>
 
-            <DropdownMenuItem asChild>
-              <Link href={AppRoutes.BILLING} className="flex items-center gap-2 cursor-pointer">
-                <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
-                <span>Billing & Plans</span>
-              </Link>
-            </DropdownMenuItem>
+            <FeatureGate flag="billing">
+              <DropdownMenuItem asChild>
+                <Link href={AppRoutes.BILLING} className="flex items-center gap-2 cursor-pointer">
+                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>Billing & Plans</span>
+                </Link>
+              </DropdownMenuItem>
+            </FeatureGate>
 
             <DropdownMenuSeparator />
 

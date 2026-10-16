@@ -12,17 +12,6 @@ function getBackendApiUrl(): string {
   return 'http://api:8080';
 }
 
-function sanitizeTargetUrl(url: string, req: NextRequest): string {
-  try {
-    const parsed = new URL(url);
-    const hostHeader = req.headers.get('host') || 'app.prism.roozylabs.com';
-    const proto = req.headers.get('x-forwarded-proto') || 'https';
-    return `${proto}://${hostHeader}${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
-
 async function proxyHandler(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
   const resolvedParams = await params;
   const pathArray = resolvedParams?.path || [];
@@ -142,11 +131,11 @@ async function proxyHandler(request: NextRequest, { params }: { params: Promise<
     }
     return normalRes;
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown connection error';
+    // The backend address and the connection error stay in the server log;
+    // the browser gets the same error shape as any other API failure.
     console.error('[API Proxy Error] Failed to proxy to:', targetUrl, error);
-    const sanitizedUrl = sanitizeTargetUrl(targetUrl, request);
     return NextResponse.json(
-      { error: 'Failed to connect to API backend', details: message, targetUrl: sanitizedUrl },
+      { error: { message: 'The API is unavailable. Please try again shortly.', code: 'API_UNAVAILABLE' } },
       { status: 502 }
     );
   }

@@ -21,6 +21,7 @@ const (
 	FlagMerkleAuditVerification FlagKey = "merkle_audit_verification"
 	FlagCustomRoleBuilder       FlagKey = "custom_role_builder"
 	FlagVaultKMSBYOK            FlagKey = "vault_kms_byok"
+	FlagBilling                 FlagKey = "billing"
 )
 
 type FlagDefinition struct {
@@ -115,6 +116,14 @@ var allFlags = []FlagDefinition{
 		DefaultState: false,
 		AllowedPlans: []string{"enterprise"},
 		Description:  "Hardware AWS KMS and custom key management vault integration",
+	},
+	{
+		// Plans, subscriptions and invoices are placeholders: nothing is
+		// stored or charged. Off until billing is real; no plan enables it.
+		Key:          FlagBilling,
+		EnvVar:       "FEATURE_FLAG_BILLING",
+		DefaultState: false,
+		Description:  "Plans, subscription and invoice pages",
 	},
 }
 

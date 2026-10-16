@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -77,28 +76,10 @@ func (h *CredentialHandler) List(c *gin.Context) {
 	providerID := c.Param("id")
 	search := c.Query("search")
 
-	limit := 10
-	if l := c.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	} else if l := c.Query("pageSize"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	}
-
-	page := 1
-	if p := c.Query("page"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 {
-			page = n
-		}
-	}
-
-	offset := (page - 1) * limit
+	pg := httputil.ParsePage(c)
 
 	userID := c.GetString("userId")
-	credentials, total, err := h.credentials.ListWithFilter(c.Request.Context(), providerID, search, limit, offset, userID)
+	credentials, total, err := h.credentials.ListWithFilter(c.Request.Context(), providerID, search, pg.Limit, pg.Offset, userID)
 	if err != nil {
 		httputil.RespondError(c, http.StatusInternalServerError, "Failed to list credentials", err, "CREDENTIALS_LIST_FAILED")
 		return
@@ -112,12 +93,7 @@ func (h *CredentialHandler) List(c *gin.Context) {
 		h.enrichCredentialQuota(c.Request.Context(), &credentials[i])
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data":     credentials,
-		"total":    total,
-		"page":     page,
-		"pageSize": limit,
-	})
+	httputil.RespondPage(c, pg, credentials, total)
 }
 
 // Get godoc
