@@ -154,7 +154,12 @@ func main() {
 
 	// Handlers
 	healthHandler := handlers.NewHealthHandler(db, rdb)
-	authHandler := handlers.NewAuthHandler(authService)
+	// Sign-in and sign-up: 30 requests per address per 10 minutes, and 10
+	// failed sign-ins per account per 15 minutes.
+	authHandler := handlers.NewAuthHandler(authService,
+		handlers.NewTurnstile(os.Getenv("CLOUDFLARE_SECRET_KEY"), cfg.IsDevelopment()),
+		goredis.NewAttemptLimiter(rdb, "auth:attempts:ip:", 30, 10*time.Minute),
+		goredis.NewAttemptLimiter(rdb, "auth:attempts:email:", 10, 15*time.Minute))
 	providerHandler := handlers.NewProviderHandler(providerRepo, gatewayKeyRepo)
 	credentialHandler := handlers.NewCredentialHandler(credentialRepo, providerRepo, gatewayKeyRepo, cooldown, eventPublisher, cfg.EncryptionKey)
 	modelHandler := handlers.NewModelHandler(modelRepo, providerRepo, gatewayKeyRepo, cooldown)
@@ -252,6 +257,12 @@ func main() {
 	}
 
 	r := gin.Default()
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Fatalf("invalid TRUSTED_PROXIES: %v", err)
+	}
+	if cfg.TrustedPlatform == "cloudflare" {
+		r.TrustedPlatform = gin.PlatformCloudflare
+	}
 
 	// CORS middleware
 	r.Use(middleware.CORSMiddleware())

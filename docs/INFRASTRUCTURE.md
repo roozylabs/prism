@@ -249,7 +249,17 @@ ENCRYPTION_KEY=your-encryption-key-here
 BETTER_AUTH_SECRET=your-better-auth-secret-here
 BETTER_AUTH_URL=https://app.yourdomain.com
 NEXT_PUBLIC_BETTER_AUTH_URL=https://app.yourdomain.com
+
+# Client address for rate limits and audit logs.
+# TRUSTED_PROXIES: CIDRs whose X-Forwarded-For is believed. The default covers
+# loopback and the private ranges nginx and the Next.js proxy connect from.
+# TRUSTED_PLATFORM=cloudflare takes the address from CF-Connecting-IP; set it
+# only when every request reaches the API through Cloudflare.
+# TRUSTED_PROXIES=127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+# TRUSTED_PLATFORM=
 ```
+
+Sign-in and sign-up are rate limited per client address (30 requests per 10 minutes) and per account (10 failed sign-ins per 15 minutes), and answer `429` with `Retry-After` beyond that. Cloudflare's Turnstile test tokens are accepted only with `APP_ENV=development`.
 
 ### 4.2 Generate Secure Secrets
 
