@@ -55,6 +55,7 @@ const (
 	MsgUpstreamConnection  = "Unable to connect to the upstream AI provider. Please try again later."
 	MsgGenericError        = "An unexpected error occurred while processing your request. Please try again later."
 	MsgClientClosedRequest = "The request was canceled by the client before a response was produced."
+	MsgUpstreamBadResponse = "The upstream AI provider returned a response that could not be read."
 )
 
 // StatusClientClosedRequest is the non-standard status (nginx 499) recorded
@@ -105,6 +106,10 @@ func CleanUpstreamError(err error) (statusCode int, errType string, errCode stri
 
 	if strings.Contains(lowerStr, "rate limit") || strings.Contains(lowerStr, "429") || strings.Contains(lowerStr, "too many requests") || strings.Contains(lowerStr, "cooldown") {
 		return http.StatusTooManyRequests, "rate_limit_error", "rate_limit_exceeded", MsgRateLimitExceeded
+	}
+
+	if strings.Contains(lowerStr, "invalid upstream response") {
+		return http.StatusBadGateway, "api_error", "upstream_bad_response", MsgUpstreamBadResponse
 	}
 
 	if strings.Contains(lowerStr, "model not found") {

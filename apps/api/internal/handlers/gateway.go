@@ -164,6 +164,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		if middleware.IsBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": gin.H{"message": "Request body is too large", "type": "invalid_request_error", "code": "request_too_large"}})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "Failed to read request body", "type": "invalid_request_error"}})
 		return
 	}
@@ -454,6 +458,10 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 
 	var req proxy.ProxyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if middleware.IsBodyTooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": gin.H{"message": "Request body is too large", "type": "invalid_request_error", "code": "request_too_large"}})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"message": fmt.Sprintf("Invalid request payload: %v", err),

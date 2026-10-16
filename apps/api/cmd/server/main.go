@@ -255,6 +255,7 @@ func main() {
 
 	// CORS middleware
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.MaxBodyBytes(cfg.MaxRequestBodyBytes))
 
 	// Health check, Readiness check & OTel Prometheus Metrics (public)
 	r.GET("/health", healthHandler.Check)
@@ -516,6 +517,10 @@ func main() {
 		Addr:              ":" + cfg.ServerPort,
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Bounds reading the request, body included; Go clears the deadline
+		// once the body is read, so long streams are not affected.
+		ReadTimeout: 60 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 	srv.RegisterOnShutdown(sseHandler.Shutdown)
 

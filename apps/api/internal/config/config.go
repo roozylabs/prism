@@ -31,6 +31,9 @@ type Config struct {
 	// choose the command, so this must stay off unless every such user is trusted
 	// to run code on the gateway host.
 	MCPLocalStdioEnabled bool
+	// MaxRequestBodyBytes caps every request body. Chat requests with
+	// inline images are the largest legitimate bodies.
+	MaxRequestBodyBytes int64
 }
 
 func Load() (*Config, error) {
@@ -52,6 +55,8 @@ func Load() (*Config, error) {
 		ShutdownTimeoutSeconds: getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 30),
 
 		MCPLocalStdioEnabled: getEnvBool("MCP_LOCAL_STDIO_ENABLED", false),
+
+		MaxRequestBodyBytes: int64(getEnvInt("MAX_REQUEST_BODY_MB", 20)) << 20,
 	}, nil
 }
 
