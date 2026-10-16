@@ -250,7 +250,7 @@ func (h *MCPHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.servers.Create(c.Request.Context(), srv); err != nil {
-		httputil.RespondInternalError(c, "Failed to create MCP server", err, "MCP_SERVER_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "MCP server", "MCP_SERVER_CREATE")
 		return
 	}
 
@@ -320,7 +320,7 @@ func (h *MCPHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.servers.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update MCP server", err, "MCP_SERVER_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "MCP server", "MCP_SERVER_UPDATE")
 		return
 	}
 
@@ -332,7 +332,7 @@ func (h *MCPHandler) Delete(c *gin.Context) {
 	userID := c.GetString("userId")
 	id := c.Param("id")
 	if err := h.servers.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete MCP server", err, "MCP_SERVER_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "MCP server", "MCP_SERVER_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "mcp server deleted"})

@@ -93,7 +93,7 @@ func (h *ProviderHandler) Create(c *gin.Context) {
 	p.UserID = c.GetString("userId")
 
 	if err := h.providers.Create(c.Request.Context(), &p); err != nil {
-		httputil.RespondInternalError(c, "Failed to create provider", err, "PROVIDER_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Provider", "PROVIDER_CREATE")
 		return
 	}
 	c.JSON(http.StatusCreated, p)
@@ -127,7 +127,7 @@ func (h *ProviderHandler) Update(c *gin.Context) {
 	existing.UserID = userID
 
 	if err := h.providers.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update provider", err, "PROVIDER_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Provider", "PROVIDER_UPDATE")
 		return
 	}
 	c.JSON(http.StatusOK, existing)
@@ -160,7 +160,7 @@ func (h *ProviderHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.providers.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete provider", err, "PROVIDER_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Provider", "PROVIDER_DELETE")
 		return
 	}
 	c.Status(http.StatusNoContent)

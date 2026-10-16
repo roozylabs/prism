@@ -170,6 +170,6 @@ func (r *AgentRepository) Update(ctx context.Context, a *models.Agent) error {
 }
 
 func (r *AgentRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1 AND user_id = $2`, id, userID)
+	return requireOneRow(res, err)
 }

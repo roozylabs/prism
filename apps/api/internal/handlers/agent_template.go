@@ -90,7 +90,7 @@ func (h *AgentTemplateHandler) CreateTemplate(c *gin.Context) {
 	}
 
 	if err := h.tmplRepo.Create(c.Request.Context(), tmpl); err != nil {
-		httputil.RespondInternalError(c, "Failed to create agent template", err, "AGENT_TEMPLATE_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Agent template", "AGENT_TEMPLATE_CREATE")
 		return
 	}
 

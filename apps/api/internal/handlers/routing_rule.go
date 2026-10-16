@@ -72,7 +72,7 @@ func (h *RoutingRuleHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.routingRepo.Create(c.Request.Context(), rule); err != nil {
-		httputil.RespondInternalError(c, "Failed to create routing rule", err, "ROUTING_RULE_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Routing rule", "ROUTING_RULE_CREATE")
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *RoutingRuleHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.routingRepo.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update routing rule", err, "ROUTING_RULE_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Routing rule", "ROUTING_RULE_UPDATE")
 		return
 	}
 
@@ -128,7 +128,7 @@ func (h *RoutingRuleHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
 	if err := h.routingRepo.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete routing rule", err, "ROUTING_RULE_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Routing rule", "ROUTING_RULE_DELETE")
 		return
 	}
 

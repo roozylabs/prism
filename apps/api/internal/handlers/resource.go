@@ -161,7 +161,7 @@ func (h *ResourceHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.resources.CreateWithBackendsTx(c.Request.Context(), res, backends); err != nil {
-		httputil.RespondInternalError(c, "Failed to create resource and backends atomically", err, "RESOURCE_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Resource", "RESOURCE_CREATE")
 		return
 	}
 
@@ -195,7 +195,7 @@ func (h *ResourceHandler) Update(c *gin.Context) {
 		existing.Enabled = *req.Enabled
 	}
 	if err := h.resources.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update resource", err, "RESOURCE_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Resource", "RESOURCE_UPDATE")
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *ResourceHandler) Update(c *gin.Context) {
 func (h *ResourceHandler) Delete(c *gin.Context) {
 	_, _, userID := getTenantContext(c)
 	if err := h.resources.Delete(c.Request.Context(), c.Param("id"), userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete resource", err, "RESOURCE_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Resource", "RESOURCE_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "resource deleted"})

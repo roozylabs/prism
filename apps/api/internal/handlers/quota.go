@@ -100,6 +100,11 @@ func (h *QuotaHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if req.MonthlySpendLimitUSD < 0 || req.DailySpendLimitUSD < 0 || req.DailyRequestLimit < 0 || req.MaxConcurrentStreams < 0 {
+		httputil.RespondBadRequest(c, "Quota limits must not be negative (0 means no limit)", nil, "INVALID_QUOTA")
+		return
+	}
+
 	quota := h.resolveQuotaTarget(c)
 	if quota == nil {
 		return

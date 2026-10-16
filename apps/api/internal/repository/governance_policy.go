@@ -101,6 +101,6 @@ func (r *GovernancePolicyRepository) Update(ctx context.Context, p *models.Gover
 }
 
 func (r *GovernancePolicyRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM governance_policies WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM governance_policies WHERE id = $1 AND user_id = $2`, id, userID)
+	return requireOneRow(res, err)
 }

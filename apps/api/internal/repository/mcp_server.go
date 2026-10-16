@@ -149,8 +149,8 @@ func (r *MCPServerRepository) UpdateStatus(ctx context.Context, id, status strin
 }
 
 func (r *MCPServerRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM mcp_servers WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM mcp_servers WHERE id = $1 AND user_id = $2`, id, userID)
+	return requireOneRow(res, err)
 }
 
 func (r *MCPServerRepository) GetServerWithTools(ctx context.Context, s *models.MCPServer) (*models.MCPServerWithTools, error) {

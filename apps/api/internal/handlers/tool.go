@@ -119,7 +119,7 @@ func (h *ToolHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.tools.CreateWithBackendsTx(c.Request.Context(), tool, backends); err != nil {
-		httputil.RespondInternalError(c, "Failed to create tool and backends atomically", err, "TOOL_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Tool", "TOOL_CREATE")
 		return
 	}
 
@@ -155,7 +155,7 @@ func (h *ToolHandler) Update(c *gin.Context) {
 		existing.Enabled = *req.Enabled
 	}
 	if err := h.tools.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update tool", err, "TOOL_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Tool", "TOOL_UPDATE")
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *ToolHandler) Update(c *gin.Context) {
 func (h *ToolHandler) Delete(c *gin.Context) {
 	userID := c.GetString("userId")
 	if err := h.tools.Delete(c.Request.Context(), c.Param("id"), userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete tool", err, "TOOL_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Tool", "TOOL_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "tool deleted"})

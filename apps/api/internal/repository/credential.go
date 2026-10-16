@@ -243,11 +243,11 @@ func (r *CredentialRepository) Delete(ctx context.Context, id string, userID ...
 		uid = userID[0]
 	}
 	if uid != "" {
-		_, err := r.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = $1 AND (user_id = $2 OR org_id = $2)`, id, uid)
-		return err
+		res, err := r.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = $1 AND (user_id = $2 OR org_id = $2)`, id, uid)
+		return requireOneRow(res, err)
 	}
-	_, err := r.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = $1`, id)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = $1`, id)
+	return requireOneRow(res, err)
 }
 
 func (r *CredentialRepository) FindActiveByProviderID(ctx context.Context, providerID string, userOrOrgID ...string) (*models.Credential, error) {

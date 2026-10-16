@@ -145,7 +145,7 @@ func (h *AgentHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.repo.Create(c.Request.Context(), agent); err != nil {
-		httputil.RespondInternalError(c, "Failed to create agent", err, "AGENT_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Agent", "AGENT_CREATE")
 		return
 	}
 	c.JSON(http.StatusCreated, agent)
@@ -220,7 +220,7 @@ func (h *AgentHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.repo.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update agent", err, "AGENT_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Agent", "AGENT_UPDATE")
 		return
 	}
 	c.JSON(http.StatusOK, existing)
@@ -230,7 +230,7 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 	userID := c.GetString("userId")
 	id := c.Param("id")
 	if err := h.repo.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete agent", err, "AGENT_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Agent", "AGENT_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "agent deleted"})

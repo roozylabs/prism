@@ -74,8 +74,12 @@ func (h *BudgetHandler) Create(c *gin.Context) {
 		CriticalThreshold: req.CriticalThreshold,
 		Enabled:           true,
 	}
+	if err := validateBudget(budget); err != nil {
+		httputil.RespondBadRequest(c, err.Error(), err, "INVALID_BUDGET")
+		return
+	}
 	if err := h.budgetRepo.Create(c.Request.Context(), budget); err != nil {
-		httputil.RespondInternalError(c, "Failed to create budget", err, "BUDGET_CREATE_FAILED")
+		httputil.RespondStoreError(c, err, "Budget", "BUDGET_CREATE")
 		return
 	}
 	c.JSON(http.StatusCreated, budget)
@@ -125,8 +129,12 @@ func (h *BudgetHandler) Update(c *gin.Context) {
 	if req.Enabled != nil {
 		existing.Enabled = *req.Enabled
 	}
+	if err := validateBudget(existing); err != nil {
+		httputil.RespondBadRequest(c, err.Error(), err, "INVALID_BUDGET")
+		return
+	}
 	if err := h.budgetRepo.Update(c.Request.Context(), existing); err != nil {
-		httputil.RespondInternalError(c, "Failed to update budget", err, "BUDGET_UPDATE_FAILED")
+		httputil.RespondStoreError(c, err, "Budget", "BUDGET_UPDATE")
 		return
 	}
 	c.JSON(http.StatusOK, existing)
@@ -136,7 +144,7 @@ func (h *BudgetHandler) Delete(c *gin.Context) {
 	userID := c.GetString("userId")
 	id := c.Param("id")
 	if err := h.budgetRepo.Delete(c.Request.Context(), id, userID); err != nil {
-		httputil.RespondInternalError(c, "Failed to delete budget", err, "BUDGET_DELETE_FAILED")
+		httputil.RespondStoreError(c, err, "Budget", "BUDGET_DELETE")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "budget deleted"})

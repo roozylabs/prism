@@ -149,8 +149,8 @@ func (r *ResourceRepository) Update(ctx context.Context, res *models.Resource) e
 }
 
 func (r *ResourceRepository) Delete(ctx context.Context, id, userID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM resources WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	res, err := r.db.ExecContext(ctx, `DELETE FROM resources WHERE id = $1 AND user_id = $2`, id, userID)
+	return requireOneRow(res, err)
 }
 
 func (r *ResourceRepository) GetResourceWithBackends(ctx context.Context, userID, resourceName string) (*models.ResourceWithBackends, error) {
