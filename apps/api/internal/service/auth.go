@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
+	"net/mail"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/roozylabs/prism/internal/models"
@@ -20,6 +23,38 @@ var (
 	ErrSessionExpired     = errors.New("session expired")
 	ErrSessionNotFound    = errors.New("session not found")
 )
+
+// InvalidSignupError explains which sign-up field was rejected.
+type InvalidSignupError struct{ Reason string }
+
+func (e *InvalidSignupError) Error() string { return e.Reason }
+
+const (
+	minPasswordLen = 8
+	// bcrypt ignores everything after 72 bytes, so a longer password would
+	// silently match any password sharing its first 72 bytes.
+	maxPasswordBytes = 72
+	maxNameLen       = 100
+)
+
+// validateSignup checks the fields of a new account. email and name are
+// already trimmed.
+func validateSignup(name, email, password string) error {
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email || !strings.Contains(email[strings.LastIndex(email, "@")+1:], ".") {
+		return &InvalidSignupError{Reason: "Enter a valid email address"}
+	}
+	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
+		return &InvalidSignupError{Reason: fmt.Sprintf("Name must be between 1 and %d characters", maxNameLen)}
+	}
+	if utf8.RuneCountInString(password) < minPasswordLen {
+		return &InvalidSignupError{Reason: fmt.Sprintf("Password must be at least %d characters", minPasswordLen)}
+	}
+	if len(password) > maxPasswordBytes {
+		return &InvalidSignupError{Reason: fmt.Sprintf("Password must be at most %d bytes", maxPasswordBytes)}
+	}
+	return nil
+}
 
 type AuthService struct {
 	users    *repository.UserRepository
@@ -99,6 +134,9 @@ func (s *AuthService) Login(ctx context.Context, email, password, ip, ua string)
 func (s *AuthService) Signup(ctx context.Context, name, email, password, ip, ua string) (*LoginResponse, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	name = strings.TrimSpace(name)
+	if err := validateSignup(name, email, password); err != nil {
+		return nil, err
+	}
 
 	// Check if user already exists
 	existing, err := s.users.FindByEmail(ctx, email)

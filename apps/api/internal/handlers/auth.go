@@ -1,27 +1,43 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/roozylabs/prism/internal/httputil"
 	_ "github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/service"
+	"github.com/roozylabs/prism/internal/utils"
 )
 
-type AuthHandler struct {
-	auth *service.AuthService
+// AuthAttemptLimiter throttles sign-in and sign-up attempts per key.
+type AuthAttemptLimiter interface {
+	Hit(ctx context.Context, key string) (bool, time.Duration, error)
+	Blocked(ctx context.Context, key string) (bool, time.Duration, error)
+	Reset(ctx context.Context, key string) error
 }
 
-func NewAuthHandler(auth *service.AuthService) *AuthHandler {
-	return &AuthHandler{auth: auth}
+type AuthHandler struct {
+	auth      *service.AuthService
+	turnstile *Turnstile
+	// perIP limits sign-in and sign-up requests from one client address;
+	// perEmail limits failed sign-ins to one account from anywhere.
+	perIP, perEmail AuthAttemptLimiter
+}
+
+func NewAuthHandler(auth *service.AuthService, turnstile *Turnstile, perIP, perEmail AuthAttemptLimiter) *AuthHandler {
+	return &AuthHandler{auth: auth, turnstile: turnstile, perIP: perIP, perEmail: perEmail}
 }
 
 func (h *AuthHandler) GetTurnstileConfig(c *gin.Context) {
@@ -29,7 +45,7 @@ func (h *AuthHandler) GetTurnstileConfig(c *gin.Context) {
 	if siteKey == "" {
 		siteKey = os.Getenv("NEXT_PUBLIC_CLOUDFLARE_SITE_KEY")
 	}
-	enabled := siteKey != "" && os.Getenv("CLOUDFLARE_SECRET_KEY") != ""
+	enabled := siteKey != "" && h.turnstile.Enabled()
 
 	c.JSON(http.StatusOK, gin.H{
 		"enabled": enabled,
@@ -37,65 +53,116 @@ func (h *AuthHandler) GetTurnstileConfig(c *gin.Context) {
 	})
 }
 
-type TurnstileResponse struct {
-	Success    bool     `json:"error_success,omitempty"`
+// cloudflareTestTokens are the dummy responses Cloudflare's test site keys
+// return. They prove nothing, so they pass only in development.
+var cloudflareTestTokens = map[string]bool{
+	"10000000-aaaa-bbbb-cccc-000000000001": true,
+	"XXXX.DUMMY.TOKEN.XXXX":                true,
+}
+
+// Turnstile verifies Cloudflare Turnstile tokens. With no secret it is off
+// and every request passes.
+type Turnstile struct {
+	secret          string
+	allowTestTokens bool
+	client          *http.Client
+	verifyURL       string
+}
+
+func NewTurnstile(secret string, allowTestTokens bool) *Turnstile {
+	secret = strings.Trim(strings.TrimSpace(secret), `"'`)
+	return &Turnstile{
+		secret:          secret,
+		allowTestTokens: allowTestTokens,
+		client:          &http.Client{Timeout: 5 * time.Second},
+		verifyURL:       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+	}
+}
+
+func (t *Turnstile) Enabled() bool { return t != nil && t.secret != "" }
+
+type turnstileResponse struct {
 	OK         bool     `json:"success"`
 	ErrorCodes []string `json:"error-codes"`
 }
 
-func verifyCloudflareTurnstile(token, secretKey, remoteIP string) (bool, string) {
-	secretKey = strings.TrimSpace(secretKey)
-	secretKey = strings.Trim(secretKey, "\"")
-	secretKey = strings.Trim(secretKey, "'")
-
-	token = strings.TrimSpace(token)
-	token = strings.Trim(token, "\"")
-	token = strings.Trim(token, "'")
-
-	if token == "10000000-aaaa-bbbb-cccc-000000000001" || token == "XXXX.DUMMY.TOKEN.XXXX" {
-		return true, "mock-bypass"
+// Verify reports whether token is a valid Turnstile response, and a short
+// reason when it is not.
+func (t *Turnstile) Verify(ctx context.Context, token, remoteIP string) (bool, string) {
+	if !t.Enabled() {
+		return true, "disabled"
 	}
-
+	token = strings.Trim(strings.TrimSpace(token), `"'`)
 	if token == "" {
 		return false, "missing-turnstile-token"
 	}
+	if cloudflareTestTokens[token] {
+		if t.allowTestTokens {
+			return true, "test-token"
+		}
+		return false, "test-token-rejected"
+	}
 
 	data := url.Values{}
-	data.Set("secret", secretKey)
+	data.Set("secret", t.secret)
 	data.Set("response", token)
 	if remoteIP != "" {
 		data.Set("remoteip", remoteIP)
 	}
-
-	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", data)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.verifyURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Printf("[Turnstile Error] Network error verifying token: %v", err)
+		return false, "request-error"
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := t.client.Do(req)
+	if err != nil {
+		log.Printf("[Turnstile] verification request failed: %v", err)
 		return false, "network-error"
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("[Turnstile Error] Failed to read response body: %v", err)
-		return false, "read-error"
-	}
-
-	var turnstileResp TurnstileResponse
-	if err := json.Unmarshal(body, &turnstileResp); err != nil {
-		log.Printf("[Turnstile Error] Failed to unmarshal JSON: %v", err)
+	var result turnstileResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&result); err != nil {
+		log.Printf("[Turnstile] unreadable verification response: %v", err)
 		return false, "parse-error"
 	}
-
-	if !turnstileResp.OK {
-		errDetail := "failed"
-		if len(turnstileResp.ErrorCodes) > 0 {
-			errDetail = strings.Join(turnstileResp.ErrorCodes, ", ")
+	if !result.OK {
+		detail := "failed"
+		if len(result.ErrorCodes) > 0 {
+			detail = strings.Join(result.ErrorCodes, ", ")
 		}
-		log.Printf("[Turnstile Rejected] token=%s errors=%s", token, errDetail)
-		return false, errDetail
+		return false, detail
 	}
-
 	return true, "success"
+}
+
+// allowAttempt counts a sign-in or sign-up attempt from the client address
+// and responds 429 when there have been too many. Limiter errors let the
+// attempt through: Redis being down must not lock everyone out.
+func (h *AuthHandler) allowAttempt(c *gin.Context) bool {
+	if h.perIP == nil {
+		return true
+	}
+	ok, retry, err := h.perIP.Hit(c.Request.Context(), c.ClientIP())
+	if err != nil {
+		log.Printf("[Auth] attempt limiter unavailable: %v", err)
+		return true
+	}
+	if !ok {
+		respondTooManyAttempts(c, retry)
+		return false
+	}
+	return true
+}
+
+func respondTooManyAttempts(c *gin.Context, retry time.Duration) {
+	c.Header("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
+	httputil.RespondError(c, http.StatusTooManyRequests, "Too many attempts. Try again later.", nil, "AUTH_TOO_MANY_ATTEMPTS")
+}
+
+// emailKey keeps addresses out of Redis.
+func emailKey(email string) string {
+	return utils.HashSHA256(strings.TrimSpace(strings.ToLower(email)))
 }
 
 // Login godoc
@@ -107,6 +174,7 @@ func verifyCloudflareTurnstile(token, secretKey, remoteIP string) (bool, string)
 // @Param        request body service.LoginRequest true "Login credentials"
 // @Success      200 {object} service.LoginResponse
 // @Failure      401 {object} map[string]string
+// @Failure      429 {object} map[string]string
 // @Router       /api/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req service.LoginRequest
@@ -114,11 +182,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		httputil.RespondBadRequest(c, "Invalid request payload", err, "INVALID_REQUEST_BODY")
 		return
 	}
+	if !h.allowAttempt(c) {
+		return
+	}
+	if ok, detail := h.turnstile.Verify(c.Request.Context(), req.TurnstileToken, c.ClientIP()); !ok {
+		httputil.RespondForbidden(c, "Security verification failed (Cloudflare Turnstile: "+detail+")", nil, "TURNSTILE_VERIFICATION_FAILED")
+		return
+	}
 
-	secretKey := os.Getenv("CLOUDFLARE_SECRET_KEY")
-	if secretKey != "" {
-		if ok, detail := verifyCloudflareTurnstile(req.TurnstileToken, secretKey, c.ClientIP()); !ok {
-			httputil.RespondForbidden(c, "Security verification failed (Cloudflare Turnstile: "+detail+")", nil, "TURNSTILE_VERIFICATION_FAILED")
+	// Failed sign-ins are counted per account, so guessing one password
+	// from many addresses is throttled too.
+	account := emailKey(req.Email)
+	if h.perEmail != nil {
+		if blocked, retry, err := h.perEmail.Blocked(c.Request.Context(), account); err == nil && blocked {
+			respondTooManyAttempts(c, retry)
 			return
 		}
 	}
@@ -132,11 +209,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
+			if h.perEmail != nil {
+				_, _, _ = h.perEmail.Hit(c.Request.Context(), account)
+			}
 			httputil.RespondUnauthorized(c, "Invalid email or password", err, "AUTH_INVALID_CREDENTIALS")
 			return
 		}
 		httputil.RespondInternalError(c, "Internal server error during login", err, "AUTH_LOGIN_FAILED")
 		return
+	}
+	if h.perEmail != nil {
+		_ = h.perEmail.Reset(c.Request.Context(), account)
 	}
 
 	// Set HttpOnly, SameSite=Lax cookie for browser session security
@@ -157,6 +240,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Success      201 {object} service.LoginResponse
 // @Failure      400 {object} map[string]string
 // @Failure      409 {object} map[string]string
+// @Failure      429 {object} map[string]string
 // @Router       /api/auth/signup [post]
 func (h *AuthHandler) Signup(c *gin.Context) {
 	var req service.SignupRequest
@@ -164,13 +248,12 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		httputil.RespondBadRequest(c, "Invalid request payload", err, "INVALID_REQUEST_BODY")
 		return
 	}
-
-	secretKey := os.Getenv("CLOUDFLARE_SECRET_KEY")
-	if secretKey != "" {
-		if ok, detail := verifyCloudflareTurnstile(req.TurnstileToken, secretKey, c.ClientIP()); !ok {
-			httputil.RespondForbidden(c, "Security verification failed (Cloudflare Turnstile: "+detail+")", nil, "TURNSTILE_VERIFICATION_FAILED")
-			return
-		}
+	if !h.allowAttempt(c) {
+		return
+	}
+	if ok, detail := h.turnstile.Verify(c.Request.Context(), req.TurnstileToken, c.ClientIP()); !ok {
+		httputil.RespondForbidden(c, "Security verification failed (Cloudflare Turnstile: "+detail+")", nil, "TURNSTILE_VERIFICATION_FAILED")
+		return
 	}
 
 	resp, err := h.auth.Signup(
@@ -182,6 +265,11 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		c.Request.UserAgent(),
 	)
 	if err != nil {
+		var invalid *service.InvalidSignupError
+		if errors.As(err, &invalid) {
+			httputil.RespondBadRequest(c, invalid.Error(), err, "AUTH_INVALID_SIGNUP")
+			return
+		}
 		if errors.Is(err, service.ErrEmailAlreadyExists) {
 			httputil.RespondError(c, http.StatusConflict, "An account with this email address already exists", err, "AUTH_ACCOUNT_EXISTS")
 			return
