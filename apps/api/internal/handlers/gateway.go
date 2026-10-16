@@ -508,6 +508,10 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 	// Behind-the-scenes Agent System Persona & Tool/Resource/MCP Rules Injection
 	h.applyAgentBoundary(c.Request.Context(), &req, agent, keyObj)
 
+	// The result is collected when the job is done; streaming it is not
+	// possible without the client's connection.
+	req.Stream = false
+
 	job := &queue.AsyncJob{
 		JobID:          jobID,
 		RequestID:      requestID,
