@@ -40,7 +40,7 @@ Your client applications and AI coding tools (OpenCode CLI, Claude Code, Antigra
          OpenCode CLI             Claude Code             Antigravity IDE
                │                       │                       │
                └───────────────────────┼───────────────────────┘
-                                       │ (Authorization: Bearer gw_sk_xxx)
+                                       │ (Authorization: Bearer prism_sk_xxx)
                                        │ (Header: X-Prism-Agent-ID: dev-agent)
                                        ▼
                               ┌─────────────────┐
@@ -107,7 +107,7 @@ Add Prism to your `~/.config/opencode/opencode.jsonc`:
 {
   "provider": "prism",
   "api_url": "https://api.prism.roozylabs.com",
-  "api_key": "gw_sk_prism_8f9a2b1c...",
+  "api_key": "prism_sk_8f9a2b1c...",
   "model": "prism-auto", // Smart Router selects the best model dynamically!
   "headers": {
     "X-Prism-Agent-ID": "opencode-cli-agent"

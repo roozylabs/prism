@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"time"
 
@@ -57,14 +55,13 @@ func (h *GatewayKeyHandler) Create(c *gin.Context) {
 		}
 	}
 
-	rawBytes := make([]byte, 24)
-	if _, err := rand.Read(rawBytes); err != nil {
+	rawKey, err := utils.NewGatewayKey()
+	if err != nil {
 		httputil.RespondInternalError(c, "Failed to generate key random bytes", err, "KEY_GENERATION_FAILED")
 		return
 	}
-	rawKey := "gw_sk_" + hex.EncodeToString(rawBytes)
 	keyHash := utils.HashSHA256(rawKey)
-	keyPrefix := rawKey[:12] + "..."
+	keyPrefix := utils.GatewayKeyDisplayPrefix(rawKey)
 
 	rateLimit := req.RateLimit
 	if rateLimit == 0 {

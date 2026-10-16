@@ -515,7 +515,7 @@ func main() {
 		}
 	}
 
-	// Gateway routes (authenticated with gw_sk_* keys) - accessible at /v1 and /api/v1
+	// Gateway routes (authenticated with prism_sk_* keys, or legacy gw_sk_*) - accessible at /v1 and /api/v1
 	registerGatewayRoutes := func(rg *gin.RouterGroup) {
 		rg.Use(middleware.GatewayAuthMiddleware(gatewayKeyCache))
 		rg.Use(middleware.TenantMiddleware(accountRepo))

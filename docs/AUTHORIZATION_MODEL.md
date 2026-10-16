@@ -64,7 +64,7 @@ The authorization engine distinguishes 5 distinct principal types:
 | **`human_user`** | UUID (`user.id`) | Authenticated human engineer or administrator operating via Web Dashboard / CLI. | Scoped to active `organization_id` & `workspace_id` memberships. |
 | **`service_principal`** | `sp_<uuid>` | Machine-to-machine service integration for CI/CD, FinOps cron, or backend orchestrators. | Explicitly bound to organization & workspace with scoped permissions. |
 | **`agent`** | UUID (`agent.id`) | Autonomous AI Agent executing downstream LLM tool calls and MCP integrations. | Inherits parent workspace scope; restricted by agent policy sandbox. |
-| **`gateway_api_key`** | `gw_sk_<hash>` | Scoped Bearer API credential used for proxy inference (`/v1/chat/completions`). | Bound to specific `org_id`, `workspace_id`, `project_id`, and allowed model list. |
+| **`gateway_api_key`** | `prism_sk_<hash>` | Scoped Bearer API credential used for proxy inference (`/v1/chat/completions`). | Bound to specific `org_id`, `workspace_id`, `project_id`, and allowed model list. |
 | **`platform_admin`** | Platform Root | Internal RoozyLabs infrastructure operators managing multi-tenant cluster health. | Platform-level only; completely separated from tenant data access. |
 
 ---

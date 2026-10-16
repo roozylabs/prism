@@ -230,7 +230,7 @@ API keys for client authentication.
 | `user_id` | `UUID` | `NOT NULL`, `REFERENCES users(id) ON DELETE CASCADE` | Owner |
 | `name` | `VARCHAR(255)` | `NOT NULL` | Display name (e.g., "OpenCode Key") |
 | `key_hash` | `VARCHAR(255)` | `UNIQUE NOT NULL` | SHA-256 hash of the key |
-| `key_prefix` | `VARCHAR(20)` | `NOT NULL` | First chars for display (e.g., "gw_sk_8sdf...") |
+| `key_prefix` | `VARCHAR(20)` | `NOT NULL` | First chars for display (e.g., "prism_sk_8sdf...") |
 | `enabled` | `BOOLEAN` | `DEFAULT true` | Whether key is active |
 | `rate_limit` | `INTEGER` | `DEFAULT 100` | Requests per minute limit |
 | `allowed_models` | `TEXT[]` | | Array of allowed model slugs (NULL = all) |
@@ -668,8 +668,8 @@ func GenerateAPIKey() (string, string, string) {
     b := make([]byte, 32)
     rand.Read(b)
 
-    // Format: gw_sk_<base64>
-    key := "gw_sk_" + base64.RawURLEncoding.EncodeToString(b)
+    // Format: prism_sk_<base64>
+    key := "prism_sk_" + base64.RawURLEncoding.EncodeToString(b)
     prefix := key[:12] + "..."
     hash := HashAPIKey(key)
 

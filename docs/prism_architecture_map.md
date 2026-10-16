@@ -39,7 +39,7 @@ Prism is an **AI API Gateway and Infrastructure Control Plane** built as a monor
 | **APIs** | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, Google OAuth |
 | **Service** | [`service.AuthService`](file:///c:/me/projects/ai-gateway/apps/api/internal/service) |
 | **UI** | [`/login`](file:///c:/me/projects/ai-gateway/apps/app/app/login) page |
-| **Auth Mechanism** | Session-token based (stored in cookie `auth_token`), not JWT. Gateway uses `gw_sk_*` hashed keys. |
+| **Auth Mechanism** | Session-token based (stored in cookie `auth_token`), not JWT. Gateway uses `prism_sk_*` hashed keys. |
 
 ### 2.2 Providers
 
@@ -81,7 +81,7 @@ Prism is an **AI API Gateway and Infrastructure Control Plane** built as a monor
 
 | Aspect | Detail |
 |--------|--------|
-| **Purpose** | API keys (`gw_sk_*`) that authenticate external clients/agents against the proxy |
+| **Purpose** | API keys (`prism_sk_*`) that authenticate external clients/agents against the proxy |
 | **Entities** | `GatewayAPIKey` |
 | **DB Tables** | `gateway_api_keys` |
 | **APIs** | CRUD at `/gateway-keys` |
@@ -236,7 +236,7 @@ User (user_id is the actual tenant boundary today)
 ├── Provider
 │   ├── Credential (encrypted_key, health_score, cooldown)
 │   └── Model (capability scores, pricing)
-├── GatewayAPIKey (gw_sk_*, rate_limit, allowed_models)
+├── GatewayAPIKey (prism_sk_*, rate_limit, allowed_models)
 ├── Agent (allowed_models, allowed_tools, allowed_resources, max_budget)
 ├── Tool → ToolBackend (HTTP endpoint)
 ├── Resource → ResourceBackend (HTTP / SQL)
@@ -292,7 +292,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant Redis
 
-    Client->>GatewayAuth: Authorization: Bearer gw_sk_...
+    Client->>GatewayAuth: Authorization: Bearer prism_sk_...
     GatewayAuth->>Redis: FindByKeyHash (cached)
     GatewayAuth->>RateLimit: gatewayKey in context
     RateLimit->>Redis: ZCard sliding window (60s)
@@ -604,7 +604,7 @@ graph TD
 | **Primary user?** | Platform administrator / individual developer | Single-user auth, no team management flows in UI |
 | **Primary problem solved?** | Reliably proxy AI requests across multiple providers with automatic failover and credential rotation | Engine retry loop, cooldown system, circuit breaker |
 | **Primary unit of control?** | `user_id` (the logged-in admin) | All repositories query `WHERE user_id = ?` |
-| **Primary unit of consumption?** | `GatewayAPIKey` (each external client/agent gets a `gw_sk_*` key) | Rate limiting + usage tracking is per gateway key |
+| **Primary unit of consumption?** | `GatewayAPIKey` (each external client/agent gets a `prism_sk_*` key) | Rate limiting + usage tracking is per gateway key |
 | **Primary unit of governance?** | `GovernancePolicy` (pattern-based allow/deny per role) | `RBACEngine.Evaluate()` in proxy hot path |
 | **Primary unit of cost?** | Individual `RequestLog` entry with `cost_usd` | Calculated from model pricing × token count |
 | **Primary unit of observability?** | `RequestLog` | Every proxy call creates one; dashboard aggregates them |
@@ -630,7 +630,7 @@ graph TD
 │                         Clients                                │
 │  (curl, SDKs, AI agents, coding tools, Paperclip adapters)    │
 └──────────────────────┬─────────────────────────────────────────┘
-                       │ Authorization: Bearer gw_sk_...
+                       │ Authorization: Bearer prism_sk_...
                        ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                    Go API Server (:8080)                         │
@@ -720,7 +720,7 @@ graph TD
 
 4. **No horizontal scaling design**: In-memory structures (`ProviderThrottler`, `ProviderConcurrencyLimiter`, `OAuthTokenManager`) are not distributed. Running multiple API instances would cause inconsistent throttling.
 
-5. **Trust the gateway key**: Once a `gw_sk_*` key is validated, the request proceeds with the key's `user_id`. There is no per-request user identity beyond the key.
+5. **Trust the gateway key**: Once a `prism_sk_*` key is validated, the request proceeds with the key's `user_id`. There is no per-request user identity beyond the key.
 
 ---
 

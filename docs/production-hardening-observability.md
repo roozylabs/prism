@@ -52,7 +52,7 @@ Prism defines 5 distinct correlation identifiers spanning the execution lifecycl
 Every request propagates correlation IDs through 10 architectural stages:
 
 1. **Gateway**: `CorrelationMiddleware` extracts/validates `X-Request-ID` or generates UUID v4. Injects `execution_id`. Sets response header.
-2. **Authentication**: `AuthMiddleware` verifies `gw_sk_*` key or session token. Attaches `userId` and `gatewayKey`.
+2. **Authentication**: `AuthMiddleware` verifies `prism_sk_*` key or session token. Attaches `userId` and `gatewayKey`.
 3. **Tenant Context**: `TenantMiddleware` resolves `OrgID`, `WorkspaceID`, `ProjectID`.
 4. **Admission Controller**: `AgentGovernanceEngine` checks governance rules, rate limits, and spend caps.
 5. **Router**: `ResolveSemantic` evaluates candidate models, scores health, creates `routing_decision_id`.
@@ -73,7 +73,7 @@ All log output uses structured JSON with mandatory secret redaction via `utils.R
   "timestamp": "2026-08-28T10:48:00.123456Z",
   "level": "INFO",
   "service": "prism-gateway",
-  "message": "Processing AI request for gw_sk_f9••••9348 with header Bearer [REDACTED_TOKEN]",
+  "message": "Processing AI request for prism_sk_f9••••9348 with header Bearer [REDACTED_TOKEN]",
   "request_id": "custom-req-123",
   "execution_id": "exec_8f94aef2-0515-4f39-cec3-a879cee31a07",
   "routing_decision_id": "dec_c3a879ce-e331-46ec-f359-348cec3a879c",
@@ -95,7 +95,7 @@ All log output uses structured JSON with mandatory secret redaction via `utils.R
 
 ### Secret Redaction Verification
 - Raw Bearer tokens (`Bearer sk-proj-*`) are replaced with `Bearer [REDACTED_TOKEN]`.
-- Raw Gateway keys (`gw_sk_f964...359348`) are masked as `gw_sk_f9••••9348`.
+- Raw Gateway keys (`prism_sk_f964...359348`) are masked as `prism_sk_f9••••9348`.
 - Raw provider secrets and passwords are never output in raw form.
 
 ---

@@ -139,13 +139,17 @@ func (h *OnboardingHandler) Complete(c *gin.Context) {
 	}
 
 	// 4. Create initial Gateway Key
-	rawKey := "gw_sk_live_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	rawKey, err := utils.NewGatewayKey()
+	if err != nil {
+		httputil.RespondError(c, http.StatusInternalServerError, "Failed to create your first gateway key. Please try again.", err, "ONBOARDING_KEY_GENERATION_FAILED")
+		return
+	}
 	keyHash := utils.HashSHA256(rawKey)
 	keyID := uuid.New().String()
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO gateway_api_keys (id, user_id, org_id, workspace_id, name, key_hash, key_prefix, enabled, rate_limit, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, true, 600, NOW(), NOW())`,
-		keyID, userID, orgID, wsID, keyName, keyHash, rawKey[:14],
+		keyID, userID, orgID, wsID, keyName, keyHash, utils.GatewayKeyDisplayPrefix(rawKey),
 	)
 	if err != nil {
 		httputil.RespondError(c, http.StatusInternalServerError, "Failed to create gateway key. Please try again.", err, "ONBOARDING_KEY_CREATION_FAILED")

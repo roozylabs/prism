@@ -7,7 +7,7 @@ import (
 
 var (
 	bearerTokenRegex = regexp.MustCompile(`(?i)Bearer\s+([a-zA-Z0-9_\-\.]{8,})`)
-	apiKeyRegex      = regexp.MustCompile(`(?i)(gw_sk_[a-zA-Z0-9]{16,}|sk-proj-[a-zA-Z0-9_\-]{16,}|sk-ant-[a-zA-Z0-9_\-]{16,}|AIzaSy[a-zA-Z0-9_\-]{16,})`)
+	apiKeyRegex      = regexp.MustCompile(`(?i)((?:prism|gw)_sk_[a-zA-Z0-9]{16,}|sk-proj-[a-zA-Z0-9_\-]{16,}|sk-ant-[a-zA-Z0-9_\-]{16,}|AIzaSy[a-zA-Z0-9_\-]{16,})`)
 )
 
 func MaskAPIKey(key string) string {

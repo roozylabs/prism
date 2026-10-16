@@ -349,7 +349,7 @@ const supportedProviders = [
 <span class="text-purple-400">&#123;</span>
   <span class="text-cyan-400">"provider"</span>: <span class="text-emerald-400">"prism"</span>,
   <span class="text-cyan-400">"api_url"</span>: <span class="text-emerald-400">"https://api.prism.roozylabs.com"</span>,
-  <span class="text-cyan-400">"api_key"</span>: <span class="text-emerald-400">"gw_sk_live_85061cbfc18e4ca58e0e..."</span>,
+  <span class="text-cyan-400">"api_key"</span>: <span class="text-emerald-400">"prism_sk_85061cbfc18e4ca58e0e..."</span>,
   <span class="text-cyan-400">"model"</span>: <span class="text-purple-400">"prism-auto"</span>, <span class="text-slate-500">// Dynamically routes prompt by task complexity</span>
   <span class="text-cyan-400">"extra_headers"</span>: <span class="text-purple-400">&#123;</span>
     <span class="text-cyan-400">"X-Request-ID"</span>: <span class="text-emerald-400">"req_uuid_v4"</span>,
@@ -360,7 +360,7 @@ const supportedProviders = [
 						<!-- Claude Code CLI -->
 						<pre id="snippet-claude" class="code-snippet hidden text-slate-300 leading-relaxed text-[11px] sm:text-xs"><code><span class="text-slate-500"># Point Claude Code directly to your Prism AI Gateway</span>
 <span class="text-purple-400">export</span> <span class="text-cyan-400">ANTHROPIC_BASE_URL</span>=<span class="text-emerald-400">"https://api.prism.roozylabs.com"</span>
-<span class="text-purple-400">export</span> <span class="text-cyan-400">ANTHROPIC_API_KEY</span>=<span class="text-emerald-400">"gw_sk_live_85061cbfc18e4ca58e0e..."</span>
+<span class="text-purple-400">export</span> <span class="text-cyan-400">ANTHROPIC_API_KEY</span>=<span class="text-emerald-400">"prism_sk_85061cbfc18e4ca58e0e..."</span>
 
 <span class="text-slate-500"># Run Claude with automatic rate-limit protection and budget monitoring</span>
 claude</code></pre>
@@ -371,7 +371,7 @@ claude</code></pre>
 <span class="text-slate-500"># Use standard OpenAI client pointing to Prism Gateway</span>
 client = OpenAI(
     base_url=<span class="text-emerald-400">"https://api.prism.roozylabs.com/v1"</span>,
-    api_key=<span class="text-emerald-400">"gw_sk_live_85061cbfc18e4ca58e0e..."</span>,
+    api_key=<span class="text-emerald-400">"prism_sk_85061cbfc18e4ca58e0e..."</span>,
 )
 
 response = client.chat.completions.create(
@@ -385,7 +385,7 @@ print(response.choices[0].message.content)</code></pre>
 
 <span class="text-purple-400">const</span> prism = <span class="text-purple-400">new</span> OpenAI(&#123;
   baseURL: <span class="text-emerald-400">'https://api.prism.roozylabs.com/v1'</span>,
-  apiKey: <span class="text-emerald-400">'gw_sk_live_85061cbfc18e4ca58e0e...'</span>,
+  apiKey: <span class="text-emerald-400">'prism_sk_85061cbfc18e4ca58e0e...'</span>,
 &#125;);
 
 <span class="text-purple-400">const</span> completion = <span class="text-purple-400">await</span> prism.chat.completions.create(&#123;
@@ -396,7 +396,7 @@ console.log(completion.choices[0].message.content);</code></pre>
 
 						<!-- cURL -->
 						<pre id="snippet-curl" class="code-snippet hidden text-slate-300 leading-relaxed text-[11px] sm:text-xs"><code>curl -X POST https://api.prism.roozylabs.com/v1/chat/completions \
-  -H <span class="text-emerald-400">"Authorization: Bearer gw_sk_live_85061cbfc18e4ca58e0e..."</span> \
+  -H <span class="text-emerald-400">"Authorization: Bearer prism_sk_85061cbfc18e4ca58e0e..."</span> \
   -H <span class="text-emerald-400">"Content-Type: application/json"</span> \
   -d <span class="text-emerald-400">'&#123;
     "model": "prism-auto",

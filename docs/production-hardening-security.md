@@ -63,7 +63,7 @@ All critical vulnerabilities identified during discovery—including cross-tenan
 - **Verification**: `ToolGateway.Execute` and `ResourceGateway.Execute` execute `GetToolWithBackends` and `GetResourceWithBackends` with `userID` context to ensure cross-tenant execution is impossible.
 
 ### Step 8: Secret Exposure & Redaction Pass
-- **Utility**: `utils.RedactSensitive(input string)` masks Bearer tokens, OpenAI keys (`sk-proj-*`), Anthropic keys (`sk-ant-*`), Google AI keys (`AIzaSy*`), and Prism keys (`gw_sk_*`).
+- **Utility**: `utils.RedactSensitive(input string)` masks Bearer tokens, OpenAI keys (`sk-proj-*`), Anthropic keys (`sk-ant-*`), Google AI keys (`AIzaSy*`), and Prism keys (`prism_sk_*`).
 
 ### Step 9: Security Regression Test Suite
 - Created `apps/api/internal/security/tenant_security_test.go` testing:

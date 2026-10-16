@@ -14,7 +14,7 @@ pip install roozylabs-prism
 from prism import Prism
 
 client = Prism(
-    api_key="gw_sk_xxx",
+    api_key="prism_sk_xxx",
     base_url="https://api.prism.roozylabs.com"
 )
 
@@ -37,7 +37,7 @@ import asyncio
 from prism import AsyncPrism
 
 async def main():
-    client = AsyncPrism(api_key="gw_sk_xxx")
+    client = AsyncPrism(api_key="prism_sk_xxx")
     response = await client.chat(
         model="prism-auto",
         messages=[{"role": "user", "content": "Hello Async!"}]

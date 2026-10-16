@@ -12,7 +12,7 @@ In your Paperclip Console (`http://localhost:3100 > Agents > [Agent Name] > Conf
 | :--- | :--- | :--- |
 | **Adapter Type** | `Prism RoozyLabs` (`prism_roozylabs`) | Standard OpenAI API protocol with Prism extension headers |
 | **Gateway URL** | `https://api.prism.roozylabs.com` | Live Prism Model Gateway API Proxy |
-| **Gateway API Key** | `gw_sk_prism_...` | Your Prism Gateway API Key |
+| **Gateway API Key** | `prism_sk_...` | Your Prism Gateway API Key |
 | **Model** | **`prism-auto`** | Dynamic Smart Router model |
 | **Custom Headers** | `X-Prism-Agent-ID: roozy-ceo` | Agent identity tracking header |
 
