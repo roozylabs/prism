@@ -37,15 +37,15 @@ export function PermissionProvider({
     initialData: initialData ?? undefined,
   });
 
-  const rawRole = (data?.primaryRole || data?.roleSlug || 'owner').toLowerCase();
+  // roleSlug is the member's role in the active organization; primaryRole is
+  // only what the user picked as a job title and grants nothing.
+  const rawRole = (data?.roleSlug || '').toLowerCase();
   const role: UserRole =
-    rawRole === 'admin'
-      ? UserRole.ADMIN
-      : rawRole === 'member'
-      ? UserRole.MEMBER
+    rawRole === 'owner'
+      ? UserRole.OWNER
       : rawRole === 'viewer'
       ? UserRole.VIEWER
-      : UserRole.OWNER;
+      : UserRole.MEMBER;
 
   const permissions = data?.permissions || [];
   const isOnboarded = data?.isOnboarded ?? true;
@@ -59,7 +59,7 @@ export function PermissionProvider({
   }, [data, isLoading, pathname, router]);
 
   const hasPermission = (perm: string): boolean => {
-    if (role === UserRole.OWNER || role === UserRole.ADMIN) return true;
+    if (role === UserRole.OWNER) return true;
     return permissions.includes(perm);
   };
 
