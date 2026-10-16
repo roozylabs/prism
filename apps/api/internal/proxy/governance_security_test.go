@@ -13,7 +13,7 @@ type mockAgentFinder struct {
 	agent *models.Agent
 }
 
-func (m *mockAgentFinder) FindByUserAndName(ctx context.Context, userID, name string) (*models.Agent, error) {
+func (m *mockAgentFinder) FindForUser(ctx context.Context, userID, ref string) (*models.Agent, error) {
 	return m.agent, nil
 }
 

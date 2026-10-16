@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/roozylabs/prism/internal/middleware"
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/proxy"
 	goredis "github.com/roozylabs/prism/internal/redis"
@@ -101,6 +102,7 @@ func (o *ExecutionOrchestrator) ExecuteChatCompletions(
 		Role:          userRole,
 		AgentID:       agentID,
 		AgentName:     agentName,
+		Agent:         resolvedAgent(c),
 		ModelSlug:     req.Model,
 		PromptPayload: promptBuilder.String(),
 		TenantCtx:     tenantCtx,
@@ -381,4 +383,14 @@ func extractFailoverChain(attemptsBytes []byte) []string {
 		}
 	}
 	return chain
+}
+
+// resolvedAgent is the agent the gateway middleware resolved for a live
+// request. Async jobs have no request context; admission resolves their agent
+// from the stored id instead.
+func resolvedAgent(c *gin.Context) *models.Agent {
+	if c == nil {
+		return nil
+	}
+	return middleware.AgentFromContext(c)
 }

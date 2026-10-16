@@ -202,6 +202,9 @@ type BudgetStatus struct {
 	DailyRemaining   float64  `json:"dailyRemaining"`
 	UsagePercent     float64  `json:"usagePercent"`
 	Status           string   `json:"status"`
+	// LimitPeriod is the limit UsagePercent and Status refer to: "monthly" or
+	// "daily", whichever is closer to being used up.
+	LimitPeriod string `json:"limitPeriod,omitempty"`
 }
 
 type RoutingRule struct {
