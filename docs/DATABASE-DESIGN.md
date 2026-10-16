@@ -782,3 +782,19 @@ log_disconnections = on
 | `request_logs` | 10,000,000 | ~10 GB |
 
 **Recommendation:** Partition `request_logs` by month for better performance after 6 months.
+
+---
+
+## 8. Schema Conventions
+
+`internal/database/migrate_test.go` checks these on a database migrated from empty, so a migration that breaks them fails CI.
+
+- **Owner:** resources are owned by a user. `user_id` is `text`, like `"user".id`, and references it `ON DELETE CASCADE`. `NULL` means a system default every user can read but not change. Audit and log tables keep the raw id without a foreign key, so their history outlives the user.
+- **Organization:** the column that points at `organizations(id)` is always `org_id`, never `organization_id`. It is context and a tenant boundary, not the owner.
+- **Foreign keys:** every foreign key has an index that starts with its column.
+- **Indexes:** no two indexes cover the same columns. `request_logs` is the most written table, so add an index there only for a query that needs it.
+- **Views:** none. A view freezes its column list when it is created and drifts from the table.
+- **Primary keys:** new tables use `uuid` with `gen_random_uuid()`. The existing exceptions keep their types, because changing a primary key type would touch every foreign key that points at it:
+  - `text`: the Better Auth tables (`"user"`, `session`, `account`, `verification`) and `oauth_states`;
+  - `varchar`: the tenancy tables (`organizations`, `workspaces`, `projects`, `organization_members`), plus `settings` and `request_payloads`;
+  - `bigint`: the append-only logs `tool_invocations` and `mcp_server_invocations`.

@@ -34,7 +34,7 @@ func (r *AuditTrailRepository) CreateAuditLog(ctx context.Context, item *models.
 	}
 	query := `
 		INSERT INTO audit_logs (
-			id, organization_id, actor_id, actor_email, action,
+			id, org_id, actor_id, actor_email, action,
 			resource, resource_id, status, details_json, actor_ip,
 			actor_user_agent, created_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -199,13 +199,13 @@ func (r *AuditTrailRepository) FindByID(ctx context.Context, id, userID string) 
 }
 
 func (r *AuditTrailRepository) ListAuditLogs(ctx context.Context, orgID string, req models.AuditExportRequest, limit, offset int) ([]models.AuditLogItem, int, error) {
-	query := `SELECT id, organization_id, actor_id, actor_email, action, resource, resource_id, status, COALESCE(details_json, ''), COALESCE(actor_ip, ''), COALESCE(actor_user_agent, ''), created_at FROM audit_logs WHERE 1=1`
+	query := `SELECT id, org_id, actor_id, actor_email, action, resource, resource_id, status, COALESCE(details_json, ''), COALESCE(actor_ip, ''), COALESCE(actor_user_agent, ''), created_at FROM audit_logs WHERE 1=1`
 	countQuery := `SELECT COUNT(*) FROM audit_logs WHERE 1=1`
 	var args []interface{}
 	paramIdx := 1
 
 	if orgID != "" {
-		clause := fmt.Sprintf(" AND (organization_id = $%d OR organization_id = '' OR organization_id IS NULL)", paramIdx)
+		clause := fmt.Sprintf(" AND (org_id = $%d OR org_id = '' OR org_id IS NULL)", paramIdx)
 		query += clause
 		countQuery += clause
 		args = append(args, orgID)

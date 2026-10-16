@@ -81,10 +81,10 @@ func TestMemberRoleResolvesThroughRoles(t *testing.T) {
 	db, r := newMemberFixture(t)
 	ctx := context.Background()
 	var custom, foreign string
-	if err := db.QueryRow(`INSERT INTO roles (organization_id, name, slug) VALUES ('org1', 'Fake owner', 'owner') RETURNING id::text`).Scan(&custom); err != nil {
+	if err := db.QueryRow(`INSERT INTO roles (org_id, name, slug) VALUES ('org1', 'Fake owner', 'owner') RETURNING id::text`).Scan(&custom); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`INSERT INTO roles (organization_id, name, slug) VALUES ('org2', 'Other', 'other') RETURNING id::text`).Scan(&foreign); err != nil {
+	if err := db.QueryRow(`INSERT INTO roles (org_id, name, slug) VALUES ('org2', 'Other', 'other') RETURNING id::text`).Scan(&foreign); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.AddOrganizationMember(ctx, "org1", "bob", "viewer"); err != nil {

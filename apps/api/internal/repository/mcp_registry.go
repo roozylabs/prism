@@ -28,7 +28,7 @@ func (r *MCPRegistryRepository) Create(ctx context.Context, server *models.MCPRe
 
 	query := `
 		INSERT INTO mcp_registry (
-			id, user_id, organization_id, name, slug, description,
+			id, user_id, org_id, name, slug, description,
 			server_url, transport_type, visibility, capabilities, is_verified,
 			created_at, updated_at
 		) VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -47,7 +47,7 @@ func (r *MCPRegistryRepository) Create(ctx context.Context, server *models.MCPRe
 
 func (r *MCPRegistryRepository) FindBySlug(ctx context.Context, slug string) (*models.MCPRegistryServer, error) {
 	query := `
-		SELECT id, COALESCE(user_id, ''), organization_id, name, slug, description,
+		SELECT id, COALESCE(user_id, ''), org_id, name, slug, description,
 		       server_url, transport_type, visibility, capabilities, is_verified,
 		       created_at, updated_at
 		FROM mcp_registry
@@ -68,7 +68,7 @@ func (r *MCPRegistryRepository) FindBySlug(ctx context.Context, slug string) (*m
 
 func (r *MCPRegistryRepository) ListPublicAndTenant(ctx context.Context, userID string) ([]models.MCPRegistryServer, error) {
 	query := `
-		SELECT id, COALESCE(user_id, ''), organization_id, name, slug, description,
+		SELECT id, COALESCE(user_id, ''), org_id, name, slug, description,
 		       server_url, transport_type, visibility, capabilities, is_verified,
 		       created_at, updated_at
 		FROM mcp_registry

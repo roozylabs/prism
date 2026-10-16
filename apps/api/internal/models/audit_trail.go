@@ -55,7 +55,7 @@ type AuditVerificationResult struct {
 
 type AuditLogItem struct {
 	ID             string    `json:"id" db:"id"`
-	OrganizationID string    `json:"organizationId" db:"organization_id"`
+	OrganizationID string    `json:"organizationId" db:"org_id"`
 	ActorID        string    `json:"actorId" db:"actor_id"`
 	ActorEmail     string    `json:"actorEmail" db:"actor_email"`
 	Action         string    `json:"action" db:"action"`

@@ -66,6 +66,15 @@ func TestMigrationsFromEmptyDatabase(t *testing.T) {
 		WHERE table_schema = 'public' AND column_name IN ('user_id', 'actor_id') AND data_type <> 'text'`); len(mismatched) > 0 {
 		t.Fatalf("user id columns that are not text: %v", mismatched)
 	}
+	// One name for the column that points at organizations(id), and no views
+	// left behind by renames: a view freezes its column list when created.
+	if leftovers := queryStrings(t, dbURL, `
+		SELECT table_name || '.' || column_name FROM information_schema.columns
+		WHERE table_schema = 'public' AND column_name = 'organization_id'
+		UNION ALL
+		SELECT 'view ' || table_name FROM information_schema.views WHERE table_schema = 'public'`); len(leftovers) > 0 {
+		t.Fatalf("use org_id and no views: %v", leftovers)
+	}
 	// Two indexes on the same columns double the cost of every write.
 	if duplicates := queryStrings(t, dbURL, `
 		SELECT string_agg(indexrelid::regclass::text, ' = ')
