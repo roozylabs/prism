@@ -305,6 +305,7 @@ func main() {
 		// Protected User-Scoped API routes (Session auth required, no active tenant required)
 		userProtected := api.Group("")
 		userProtected.Use(middleware.AuthMiddleware(sessionRepo, gatewayKeyCache))
+		userProtected.Use(middleware.RestrictGatewayKeys(middleware.GatewayKeyRoutes))
 		{
 			// Auth Session
 			userProtected.POST("/auth/logout", authHandler.Logout)
@@ -320,6 +321,7 @@ func main() {
 		// Protected Tenant-Scoped API routes (Auth + Strict Tenant Membership required)
 		protected := api.Group("")
 		protected.Use(middleware.AuthMiddleware(sessionRepo, gatewayKeyCache))
+		protected.Use(middleware.RestrictGatewayKeys(middleware.GatewayKeyRoutes))
 		protected.Use(middleware.TenantMiddleware(accountRepo))
 		requirePermission := func(code string) gin.HandlerFunc {
 			return middleware.RequirePermission(authzEngine, code)
@@ -370,12 +372,12 @@ func main() {
 			protected.DELETE("/gateway-keys/:id", requirePermission("api_key:revoke"), gatewayKeyHandler.Delete)
 
 			// Request Logs & Analytics
-			protected.GET("/logs", logsHandler.List)
-			protected.GET("/analytics/logs", logsHandler.GetAnalytics)
-			protected.GET("/analytics/finops", finopsHandler.GetSummary)
-			protected.GET("/analytics/finops/anomalies", finopsAnomaliesHandler.ListAnomalies)
-			protected.GET("/analytics/finops/budget-alerts", finopsAnomaliesHandler.ListBudgetAlerts)
-			protected.POST("/analytics/finops/budget-alerts/:id/acknowledge", finopsAnomaliesHandler.AcknowledgeAlert)
+			protected.GET("/logs", requirePermission("logs:read"), logsHandler.List)
+			protected.GET("/analytics/logs", requirePermission("logs:read"), logsHandler.GetAnalytics)
+			protected.GET("/analytics/finops", requirePermission("finops:read"), finopsHandler.GetSummary)
+			protected.GET("/analytics/finops/anomalies", requirePermission("finops:read"), finopsAnomaliesHandler.ListAnomalies)
+			protected.GET("/analytics/finops/budget-alerts", requirePermission("finops:read"), finopsAnomaliesHandler.ListBudgetAlerts)
+			protected.POST("/analytics/finops/budget-alerts/:id/acknowledge", requirePermission("finops:manage_budget"), finopsAnomaliesHandler.AcknowledgeAlert)
 
 			// Quotas & Budgets
 			protected.GET("/quotas", requirePermission("quota:read"), quotaHandler.List)
@@ -405,38 +407,38 @@ func main() {
 			protected.GET("/sse", sseHandler.Stream)
 
 			// Routing Rules
-			protected.GET("/routing-rules", routingRuleHandler.List)
-			protected.GET("/routing-rules/:id", routingRuleHandler.Get)
-			protected.POST("/routing-rules", routingRuleHandler.Create)
-			protected.PUT("/routing-rules/:id", routingRuleHandler.Update)
-			protected.DELETE("/routing-rules/:id", routingRuleHandler.Delete)
+			protected.GET("/routing-rules", requirePermission("routing:read"), routingRuleHandler.List)
+			protected.GET("/routing-rules/:id", requirePermission("routing:read"), routingRuleHandler.Get)
+			protected.POST("/routing-rules", requirePermission("routing:update"), routingRuleHandler.Create)
+			protected.PUT("/routing-rules/:id", requirePermission("routing:update"), routingRuleHandler.Update)
+			protected.DELETE("/routing-rules/:id", requirePermission("routing:update"), routingRuleHandler.Delete)
 
 			// Routing Policies (with aliases for /policies and /routing/policies)
-			protected.GET("/routing-policies", routingPolicyHandler.List)
-			protected.GET("/routing-policies/:id", routingPolicyHandler.Get)
-			protected.POST("/routing-policies", routingPolicyHandler.Create)
-			protected.PUT("/routing-policies/:id", routingPolicyHandler.Update)
-			protected.PUT("/routing-policies/:id/default", routingPolicyHandler.SetDefault)
-			protected.DELETE("/routing-policies/:id", routingPolicyHandler.Delete)
+			protected.GET("/routing-policies", requirePermission("routing:read"), routingPolicyHandler.List)
+			protected.GET("/routing-policies/:id", requirePermission("routing:read"), routingPolicyHandler.Get)
+			protected.POST("/routing-policies", requirePermission("routing:update"), routingPolicyHandler.Create)
+			protected.PUT("/routing-policies/:id", requirePermission("routing:update"), routingPolicyHandler.Update)
+			protected.PUT("/routing-policies/:id/default", requirePermission("routing:update"), routingPolicyHandler.SetDefault)
+			protected.DELETE("/routing-policies/:id", requirePermission("routing:update"), routingPolicyHandler.Delete)
 
-			protected.GET("/policies", routingPolicyHandler.List)
-			protected.GET("/policies/:id", routingPolicyHandler.Get)
-			protected.POST("/policies", routingPolicyHandler.Create)
-			protected.PUT("/policies/:id", routingPolicyHandler.Update)
-			protected.PUT("/policies/:id/default", routingPolicyHandler.SetDefault)
-			protected.DELETE("/policies/:id", routingPolicyHandler.Delete)
+			protected.GET("/policies", requirePermission("routing:read"), routingPolicyHandler.List)
+			protected.GET("/policies/:id", requirePermission("routing:read"), routingPolicyHandler.Get)
+			protected.POST("/policies", requirePermission("routing:update"), routingPolicyHandler.Create)
+			protected.PUT("/policies/:id", requirePermission("routing:update"), routingPolicyHandler.Update)
+			protected.PUT("/policies/:id/default", requirePermission("routing:update"), routingPolicyHandler.SetDefault)
+			protected.DELETE("/policies/:id", requirePermission("routing:update"), routingPolicyHandler.Delete)
 
-			protected.GET("/routing/policies", routingPolicyHandler.List)
-			protected.POST("/routing/policies", routingPolicyHandler.Create)
-			protected.PUT("/routing/policies/:id", routingPolicyHandler.Update)
-			protected.PUT("/routing/policies/:id/default", routingPolicyHandler.SetDefault)
-			protected.DELETE("/routing/policies/:id", routingPolicyHandler.Delete)
+			protected.GET("/routing/policies", requirePermission("routing:read"), routingPolicyHandler.List)
+			protected.POST("/routing/policies", requirePermission("routing:update"), routingPolicyHandler.Create)
+			protected.PUT("/routing/policies/:id", requirePermission("routing:update"), routingPolicyHandler.Update)
+			protected.PUT("/routing/policies/:id/default", requirePermission("routing:update"), routingPolicyHandler.SetDefault)
+			protected.DELETE("/routing/policies/:id", requirePermission("routing:update"), routingPolicyHandler.Delete)
 
 			// Routing Decisions Audit Logs & Simulation
-			protected.GET("/routing/decisions", routingDecisionHandler.List)
-			protected.GET("/routing-decisions", routingDecisionHandler.List)
-			protected.POST("/routing/simulate", simulateHandler.Simulate)
-			protected.POST("/routing-simulate", simulateHandler.Simulate)
+			protected.GET("/routing/decisions", requirePermission("routing:read"), routingDecisionHandler.List)
+			protected.GET("/routing-decisions", requirePermission("routing:read"), routingDecisionHandler.List)
+			protected.POST("/routing/simulate", requirePermission("routing:read"), simulateHandler.Simulate)
+			protected.POST("/routing-simulate", requirePermission("routing:read"), simulateHandler.Simulate)
 
 			// Budgets
 			protected.GET("/budgets", requirePermission("budget:read"), budgetHandler.List)
@@ -526,7 +528,9 @@ func main() {
 		rg.GET("/models", gatewayHandler.Models)
 		rg.POST("/tools/:toolName/execute", toolGatewayHandler.ExecuteTool)
 		rg.POST("/resources/:resourceName/query", resourceGatewayHandler.ExecuteQuery)
-		rg.POST("/adapters/paperclip/agent/register", paperclipHandler.RegisterAgent)
+		// Registering creates or changes an agent of the key's owner, so the
+		// owner needs agent:create like in the dashboard.
+		rg.POST("/adapters/paperclip/agent/register", middleware.GatewayKeyOwner(), middleware.RequirePermission(authzEngine, "agent:create"), paperclipHandler.RegisterAgent)
 		rg.POST("/adapters/paperclip/chat/completions", paperclipHandler.ChatCompletions)
 	}
 

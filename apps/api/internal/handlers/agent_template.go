@@ -101,7 +101,7 @@ func (h *AgentTemplateHandler) InstantiateTemplate(c *gin.Context) {
 	userID := c.GetString("userId")
 	tmplID := c.Param("id")
 
-	tmpl, err := h.tmplRepo.FindByID(c.Request.Context(), tmplID)
+	tmpl, err := h.tmplRepo.FindByID(c.Request.Context(), tmplID, userID)
 	if err != nil {
 		httputil.RespondNotFound(c, "Agent template not found", err, "AGENT_TEMPLATE_NOT_FOUND")
 		return

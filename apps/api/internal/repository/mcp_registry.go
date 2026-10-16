@@ -45,15 +45,17 @@ func (r *MCPRegistryRepository) Create(ctx context.Context, server *models.MCPRe
 	return nil
 }
 
-func (r *MCPRegistryRepository) FindBySlug(ctx context.Context, slug string) (*models.MCPRegistryServer, error) {
+// FindBySlug returns a catalog entry the user may see: a public one or
+// their own.
+func (r *MCPRegistryRepository) FindBySlug(ctx context.Context, slug, userID string) (*models.MCPRegistryServer, error) {
 	query := `
 		SELECT id, COALESCE(user_id, ''), org_id, name, slug, description,
 		       server_url, transport_type, visibility, capabilities, is_verified,
 		       created_at, updated_at
 		FROM mcp_registry
-		WHERE slug = $1
+		WHERE slug = $1 AND (visibility = 'public' OR user_id = $2)
 	`
-	row := r.db.QueryRowContext(ctx, query, slug)
+	row := r.db.QueryRowContext(ctx, query, slug, userID)
 	var s models.MCPRegistryServer
 	err := row.Scan(
 		&s.ID, &s.UserID, &s.OrganizationID, &s.Name, &s.Slug, &s.Description,

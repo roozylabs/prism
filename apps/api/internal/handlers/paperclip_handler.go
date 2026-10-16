@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/roozylabs/prism/internal/httputil"
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/proxy"
+	"github.com/roozylabs/prism/internal/repository"
 )
 
 type PaperclipHandler struct {
@@ -51,6 +53,10 @@ func (h *PaperclipHandler) RegisterAgent(c *gin.Context) {
 		req.AllowedModels,
 		req.AllowedTools,
 	)
+	if errors.Is(err, proxy.ErrNotPaperclipAgent) || repository.IsUniqueViolation(err) {
+		httputil.RespondError(c, http.StatusConflict, "An agent with this id already exists and is not a Paperclip agent", err, "AGENT_ID_TAKEN")
+		return
+	}
 	if err != nil {
 		httputil.RespondInternalError(c, "Failed to register Paperclip agent", err, "PAPERCLIP_AGENT_REGISTER_FAILED")
 		return

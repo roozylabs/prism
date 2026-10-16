@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -50,9 +51,20 @@ func ExtractPaperclipContext(c *gin.Context) *PaperclipAgentContext {
 }
 
 // RegisterPaperclipAgent provisions or updates a Paperclip agent profile in Prism.
+// ErrNotPaperclipAgent is returned when the agent id belongs to an agent the
+// adapter did not create.
+var ErrNotPaperclipAgent = errors.New("agent exists and is not a Paperclip agent")
+
 func (p *PaperclipAdapter) RegisterPaperclipAgent(ctx context.Context, userID, agentID, name, description string, allowedModels, allowedTools []string) (*models.Agent, error) {
-	existing, err := p.agentRepo.FindByID(ctx, agentID, userID)
+	// Agents are unique per owner by name; Paperclip's agentId is its own
+	// identifier, not ours, so the agent is matched by name.
+	existing, err := p.agentRepo.FindByUserAndName(ctx, userID, name)
 	if err == nil && existing != nil {
+		// The adapter manages the agents it created; it must not rewrite a
+		// system agent or the allowed models of the user's other agents.
+		if existing.UserID != userID || existing.AgentType != "paperclip_agent" {
+			return nil, ErrNotPaperclipAgent
+		}
 		existing.Name = name
 		existing.Description = description
 		if len(allowedModels) > 0 {
@@ -68,7 +80,6 @@ func (p *PaperclipAdapter) RegisterPaperclipAgent(ctx context.Context, userID, a
 	}
 
 	agent := &models.Agent{
-		ID:            agentID,
 		UserID:        userID,
 		Name:          name,
 		DisplayName:   name,
