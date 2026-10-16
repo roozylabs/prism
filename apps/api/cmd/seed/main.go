@@ -208,10 +208,9 @@ func SeedMatrix(ctx context.Context, db *sql.DB) error {
 
 		// 3d. Upsert Quota for Organization
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO tenant_quotas (organization_id, target_type, target_id, monthly_spend_limit_usd, daily_spend_limit_usd, daily_request_limit, max_concurrent_streams, created_at, updated_at)
-			VALUES ($1, 'organization', $1, $2, $3, $4, $5, NOW(), NOW())
+			INSERT INTO tenant_quotas (organization_id, monthly_spend_limit_usd, daily_spend_limit_usd, daily_request_limit, max_concurrent_streams, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 			ON CONFLICT (target_type, target_id) DO UPDATE SET
-				organization_id = EXCLUDED.organization_id,
 				monthly_spend_limit_usd = EXCLUDED.monthly_spend_limit_usd,
 				daily_spend_limit_usd = EXCLUDED.daily_spend_limit_usd,
 				daily_request_limit = EXCLUDED.daily_request_limit,

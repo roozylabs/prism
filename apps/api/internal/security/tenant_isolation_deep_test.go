@@ -67,6 +67,7 @@ func TestQuotaHandler_CrossOrgUpdateForbidden(t *testing.T) {
 	})
 
 	r.PUT("/api/quotas/:target_type/:target_id", handler.Update)
+	r.GET("/api/quotas/:target_type/:target_id", handler.Get)
 
 	// Tenant A tries to update Quota for Tenant B
 	payload := `{"monthlySpendLimitUsd": 500.0}`
@@ -76,5 +77,11 @@ func TestQuotaHandler_CrossOrgUpdateForbidden(t *testing.T) {
 	r.ServeHTTP(resp, req)
 
 	assert.Equal(t, http.StatusForbidden, resp.Code)
-	assert.Contains(t, resp.Body.String(), "cannot update quota for a different organization")
+	assert.Contains(t, resp.Body.String(), "cannot access the quota of a different organization")
+
+	// Reading it, which reports Tenant B's spend, is refused too.
+	req, _ = http.NewRequest("GET", "/api/quotas/organization/org_tenant_B", nil)
+	resp = httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+	assert.Equal(t, http.StatusForbidden, resp.Code)
 }
