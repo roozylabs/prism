@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/roozylabs/prism/internal/utils"
@@ -31,10 +32,21 @@ type Config struct {
 	// choose the command, so this must stay off unless every such user is trusted
 	// to run code on the gateway host.
 	MCPLocalStdioEnabled bool
+	// TrustedProxies are the CIDRs whose X-Forwarded-For is believed when
+	// working out a client's address. The default covers loopback and the
+	// private ranges nginx and the Next.js proxy connect from; a client
+	// connecting from anywhere else is identified by its own address.
+	TrustedProxies []string
+	// TrustedPlatform names a CDN header to take the client address from:
+	// "cloudflare" uses CF-Connecting-IP. Set it only when every request
+	// reaches the API through that CDN.
+	TrustedPlatform string
 	// MaxRequestBodyBytes caps every request body. Chat requests with
 	// inline images are the largest legitimate bodies.
 	MaxRequestBodyBytes int64
 }
+
+const defaultTrustedProxies = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
@@ -56,6 +68,8 @@ func Load() (*Config, error) {
 
 		MCPLocalStdioEnabled: getEnvBool("MCP_LOCAL_STDIO_ENABLED", false),
 
+		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
+		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
 		MaxRequestBodyBytes: int64(getEnvInt("MAX_REQUEST_BODY_MB", 20)) << 20,
 	}, nil
 }
@@ -77,6 +91,25 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid configuration (APP_ENV=%s): %w", c.AppEnv, err)
 	}
 	return nil
+}
+
+// getEnvNonEmpty is getEnv that also falls back when the variable is set
+// but blank, as docker compose does for ${VAR:-}.
+func getEnvNonEmpty(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func getEnv(key, fallback string) string {
