@@ -278,6 +278,14 @@ Redis operations time out after 500 ms with one retry (unless `REDIS_URL` sets `
 
 Redis is capped at `REDIS_MAXMEMORY` (default `512mb`) with `noeviction`: nothing is evicted, so at the cap writes fail as above instead of queued jobs disappearing.
 
+On the request path the gateway touches Redis for the cooldown check (one `MGET` over the candidate credentials) and to record the in-flight request (one pipelined `HSET`+`EXPIRE` on the caller's own `gateway:active_requests:<user>` hash, removed when the request ends). Everything else a request leaves behind runs off the path, see below.
+
+### Background writes and the database
+
+The writes a request leaves behind (request payload, routing decision, credential usage and health, quota headers, tool and MCP invocations, model telemetry, cost backfill, the dashboard's active-streams event) run on a pool of 16 workers with a 10-second deadline each. The queue holds 1024 tasks; when it is full the task is dropped and counted in the log (`side effects: queue full`), so a slow PostgreSQL costs some bookkeeping rather than request latency. On shutdown the queue gets 10 seconds to drain after the HTTP server has stopped.
+
+Every statement on the API's connection pool (25 connections) is cancelled by the server after `DB_STATEMENT_TIMEOUT_MS` (default 30 s). Migrations run on their own connection and are not bound by it.
+
 ### 4.2 Generate Secure Secrets
 
 ```bash
