@@ -41,6 +41,44 @@ type GatewayHandler struct {
 	mcpToolRepo     *repository.MCPToolRepository
 	roleResolver    MemberRoleResolver
 	sandboxKeys     sandboxKeyFinder
+	routingPolicies routingPolicyFinder
+}
+
+// routingPolicyFinder resolves the policy a sandbox request names, scoped to
+// the key owner.
+type routingPolicyFinder interface {
+	FindByID(ctx context.Context, id, userID string) (*models.RoutingPolicy, error)
+	FindByName(ctx context.Context, name, userID string) (*models.RoutingPolicy, error)
+}
+
+// SetRoutingPolicyFinder lets the sandbox honour X-Routing-Policy.
+func (h *GatewayHandler) SetRoutingPolicyFinder(f routingPolicyFinder) {
+	h.routingPolicies = f
+}
+
+// resolveSandboxPolicy reads X-Routing-Policy (a policy id or exact name
+// owned by the key's user) and stashes the policy id for the request. An
+// unknown or disabled policy answers 404 and returns false; no header means
+// the default policy.
+func (h *GatewayHandler) resolveSandboxPolicy(c *gin.Context, key *models.GatewayAPIKey) bool {
+	ref := strings.TrimSpace(c.GetHeader("X-Routing-Policy"))
+	if ref == "" || h.routingPolicies == nil || key == nil {
+		return true
+	}
+	policy, err := h.routingPolicies.FindByID(c.Request.Context(), ref, key.UserID)
+	if err != nil || policy == nil {
+		policy, err = h.routingPolicies.FindByName(c.Request.Context(), ref, key.UserID)
+	}
+	if err != nil || policy == nil || !policy.Enabled {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{
+			"message": "Routing policy not found or disabled",
+			"type":    "invalid_request_error",
+			"code":    "routing_policy_not_found",
+		}})
+		return false
+	}
+	c.Set("routingPolicyID", policy.ID)
+	return true
 }
 
 // MemberRoleResolver resolves the role a user holds in an organization from
@@ -182,6 +220,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "Model is required", "type": "invalid_request_error"}})
 		return
 	}
+	// Only the sandbox may choose a policy; a client-sent body field is ignored.
+	req.RoutingPolicyID = c.GetString("routingPolicyID")
 
 	// Resolve Canonical TenantContext with Strict Ownership Security
 	tenantCtx, err := middleware.ResolveCanonicalTenantContext(c, gatewayKey)
@@ -424,6 +464,9 @@ func (h *GatewayHandler) SandboxChatCompletions(c *gin.Context) {
 	if !middleware.ResolveAgent(c, h.agentFinder()) {
 		return
 	}
+	if !h.resolveSandboxPolicy(c, gatewayKey) {
+		return
+	}
 	h.ChatCompletions(c)
 }
 
@@ -482,6 +525,9 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 		})
 		return
 	}
+
+	// Only the sandbox may choose a policy; a client-sent body field is ignored.
+	req.RoutingPolicyID = c.GetString("routingPolicyID")
 
 	tenantCtx := middleware.GetTenantContext(c)
 	requestID := c.GetHeader("X-Request-ID")
@@ -559,6 +605,9 @@ func (h *GatewayHandler) AsyncSandboxChatCompletions(c *gin.Context) {
 	c.Set("gatewayKey", gatewayKey)
 	// Sandbox routes do not run the gateway middleware chain.
 	if !middleware.ResolveAgent(c, h.agentFinder()) {
+		return
+	}
+	if !h.resolveSandboxPolicy(c, gatewayKey) {
 		return
 	}
 	h.AsyncChatCompletions(c)
