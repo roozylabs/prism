@@ -74,6 +74,7 @@ func newTestMCPServer() *server.MCPServer {
 }
 
 func TestMCPGatewaySyncServerTools(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	ts := server.NewTestStreamableHTTPServer(newTestMCPServer())
 	defer ts.Close()
@@ -100,6 +101,7 @@ func TestMCPGatewaySyncServerTools(t *testing.T) {
 }
 
 func TestMCPGatewayExecuteToolSuccess(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	ts := server.NewTestStreamableHTTPServer(newTestMCPServer())
 	defer ts.Close()
@@ -134,6 +136,7 @@ func TestMCPGatewayExecuteToolSuccess(t *testing.T) {
 }
 
 func TestMCPGatewayExecuteToolSuccess_SSE(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	ts := server.NewTestServer(newTestMCPServer())
 	defer ts.Close()
@@ -161,6 +164,7 @@ func TestMCPGatewayExecuteToolSuccess_SSE(t *testing.T) {
 }
 
 func TestMCPGatewayExecuteToolErrorRecordsInvocation(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	// A server exposing a tool that always returns an error payload.
 	errorServer := server.NewMCPServer("github-mcp", "1.0.0")

@@ -52,6 +52,10 @@ func newFailoverFixture(t *testing.T, credentials, maxRetries int, upstream http
 		t.Skipf("redis unavailable: %v", err)
 	}
 
+	// The engine dials through the SSRF guard; the loopback upstream needs
+	// the development bypass.
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
 

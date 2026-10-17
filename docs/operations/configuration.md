@@ -18,15 +18,19 @@ The root `.env.example` file defines configuration parameters classified into 6 
 | `APP_PORT` | Network | Optional | No | `3000` | Listens on port 3000. |
 | `POSTGRES_DB` | Database | **Required** | No | `prism` | Database connection fails. |
 | `POSTGRES_USER` | Database | **Required** | No | `postgres` | Database authentication fails. |
-| `POSTGRES_PASSWORD` | Database | **Required** | **YES** | `<SECRET>` | **CRITICAL: Database connection fails.** |
+| `POSTGRES_PASSWORD` | Database | **Required** | **YES** | `<SECRET>` | Compose refuses to start without it; the API refuses default values (`postgres`, `password`, ...) outside development. |
 | `POSTGRES_PORT` | Database | Optional | No | `5433` | Connects on port 5433 (host). |
-| `REDIS_PASSWORD` | Redis | **Required** | **YES** | `<SECRET>` | **CRITICAL: Redis authentication fails.** |
+| `REDIS_PASSWORD` | Redis | **Required** | **YES** | `<SECRET>` | Compose refuses to start without it; the API refuses an empty or default value outside development. |
 | `REDIS_PORT` | Redis | Optional | No | `6379` | Connects on port 6379. |
 | `ENCRYPTION_KEY` | Security | **Required** | **YES** | `<SECRET>` | **CRITICAL: Credential decryption fails.** |
 | `BETTER_AUTH_SECRET` | Auth | **Required** | **YES** | `<SECRET>` | Next.js dashboard login fails. |
 | `BETTER_AUTH_URL` | Auth | **Required** | No | `https://app.prism.roozylabs.com` | OAuth callbacks break. |
 | `API_URL` | Internal Net | **Required** | No | `http://api:8080` | App dashboard cannot reach API. |
-| `ALLOWED_ORIGINS` | Security | **Required** | No | `https://app.prism.roozylabs.com` | CORS requests blocked. |
+| `ALLOWED_ORIGINS` | Security | **Required** | No | `https://app.prism.roozylabs.com` | Comma-separated browser origins answered with credentials. Outside development the API refuses `*` and local origins (`localhost`, `127.0.0.1`). |
+| `CLOUDFLARE_SECRET_KEY` | Security | **Required** | **YES** | `<SECRET>` | Turnstile server key for sign-up and sign-in. Outside development the API refuses to start without it unless `TURNSTILE_DISABLED=true`. |
+| `NEXT_PUBLIC_CLOUDFLARE_SITE_KEY` | Security | **Required** | No | `0x4AAA...` | Turnstile site key, passed to the dashboard build. With a secret set and no site key, every sign-in fails. |
+| `TURNSTILE_DISABLED` | Security | Optional | No | `false` | Runs sign-up without a captcha on purpose; only the per-address attempt limit protects it. |
+| `RESOURCE_POSTGRES_ENABLED` | Security | Optional | No | `false` | Allows resource backends of type `postgres`, which connect to a host the user chooses. The host must be public; keep this off unless every user who can create resources is trusted. |
 
 ---
 
@@ -37,8 +41,10 @@ The API gateway validates mandatory configuration at startup in `config.Load()` 
 1. **`ENCRYPTION_KEY` Validation** (`Config.Validate`, called by `cmd/server` before migrations or connections): outside `APP_ENV=development` the server exits if the key is empty, shorter than 32 characters, low-variety, or one of the keys previously committed to this repository. In `development` it only logs a warning. Generate a key with `openssl rand -hex 32`.
 2. **`APP_ENV`** defaults to `production`; only an explicit `development` relaxes the checks above and serves Swagger.
 3. **Typed values**: a number or boolean that does not parse (or a negative number) stops the server with an error naming the variable.
-4. **Database URL Validation**: Must contain valid PostgreSQL connection string schema.
-5. **Redis URL Validation**: Must contain valid Redis host & password schema.
+4. **Datastore passwords**: outside development `DATABASE_URL` and `REDIS_URL` must carry a password that is not one of the shipped defaults (`postgres`, `redis`, `password`, ...).
+5. **CORS origins**: `ALLOWED_ORIGINS` must list at least one `scheme://host` origin, never `*` or a local origin.
+6. **Captcha**: `CLOUDFLARE_SECRET_KEY` must be set unless `TURNSTILE_DISABLED=true`.
+7. **Migrations**: with `RUN_MIGRATIONS=true` a failed migration stops the server instead of serving on a stale schema.
 
 If any required secret is missing or set to placeholder defaults in production mode, the application halts immediately with exit code 1 to prevent silent security degradation.
 

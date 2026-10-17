@@ -22,6 +22,7 @@ func (m *toolFinderMock) GetToolWithBackends(ctx context.Context, userID, toolNa
 }
 
 func TestToolGatewayExecuteSuccess(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
@@ -50,6 +51,7 @@ func TestToolGatewayExecuteSuccess(t *testing.T) {
 }
 
 func TestToolGatewayExecuteFailover(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +82,7 @@ func TestToolGatewayExecuteFailover(t *testing.T) {
 }
 
 func TestToolGatewayExecuteAllFail(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)

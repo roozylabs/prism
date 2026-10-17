@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,18 +14,66 @@ import (
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/proxy"
 	"github.com/roozylabs/prism/internal/repository"
+	"github.com/roozylabs/prism/internal/security"
 	"github.com/roozylabs/prism/internal/utils"
 )
 
 type ResourceHandler struct {
-	resources *repository.ResourceRepository
-	backends  *repository.ResourceBackendRepository
-	gateway   proxy.ResourceGatewayExecutor
-	encKey    string
+	resources       *repository.ResourceRepository
+	backends        *repository.ResourceBackendRepository
+	gateway         proxy.ResourceGatewayExecutor
+	encKey          string
+	postgresEnabled bool
 }
 
 func NewResourceHandler(resources *repository.ResourceRepository, backends *repository.ResourceBackendRepository, gateway proxy.ResourceGatewayExecutor, encKey string) *ResourceHandler {
 	return &ResourceHandler{resources: resources, backends: backends, gateway: gateway, encKey: encKey}
+}
+
+// SetPostgresBackends allows backends of type "postgres". They open a
+// connection to a host the user chooses, so they are off unless the
+// operator turns them on (RESOURCE_POSTGRES_ENABLED).
+func (h *ResourceHandler) SetPostgresBackends(enabled bool) {
+	h.postgresEnabled = enabled
+}
+
+var errPostgresBackendsDisabled = errors.New("postgres backends are disabled on this gateway (RESOURCE_POSTGRES_ENABLED)")
+
+// validateBackend refuses a backend that would make the gateway connect to
+// an internal host: REST and GraphQL endpoints must be public URLs, and a
+// postgres connection string must name a public host.
+func (h *ResourceHandler) validateBackend(br CreateResourceBackendRequest) error {
+	switch strings.ToLower(strings.TrimSpace(br.BackendType)) {
+	case "postgres":
+		if !h.postgresEnabled {
+			return errPostgresBackendsDisabled
+		}
+		if br.ConnectionString == nil || strings.TrimSpace(*br.ConnectionString) == "" {
+			return errors.New("postgres backend needs a connectionString")
+		}
+		return security.ValidatePostgresDSN(*br.ConnectionString)
+	default:
+		if br.EndpointURL == nil || strings.TrimSpace(*br.EndpointURL) == "" {
+			return errors.New("backend needs an endpointUrl")
+		}
+		return security.ValidateOutboundURL(*br.EndpointURL)
+	}
+}
+
+// backendsAllowed validates every backend of a request before anything is
+// written, answering 400 (and returning false) on the first problem.
+func (h *ResourceHandler) backendsAllowed(c *gin.Context, backends []CreateResourceBackendRequest) bool {
+	for _, br := range backends {
+		if err := h.validateBackend(br); err != nil {
+			code := "RESOURCE_BACKEND_BLOCKED"
+			if errors.Is(err, errPostgresBackendsDisabled) {
+				code = "RESOURCE_POSTGRES_DISABLED"
+			}
+			httputil.RespondBadRequest(c, "Backend "+br.Name+": "+err.Error(), err, code)
+			return false
+		}
+	}
+	return true
 }
 
 func getTenantContext(c *gin.Context) (orgID, wsID, userID string) {
@@ -93,6 +143,10 @@ func (h *ResourceHandler) Create(c *gin.Context) {
 	var req CreateResourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.RespondBadRequest(c, "Invalid request payload", err, "INVALID_REQUEST_BODY")
+		return
+	}
+
+	if !h.backendsAllowed(c, req.Backends) {
 		return
 	}
 
@@ -182,6 +236,9 @@ func (h *ResourceHandler) Update(c *gin.Context) {
 	var req CreateResourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.RespondBadRequest(c, "Invalid request payload", err, "INVALID_REQUEST_BODY")
+		return
+	}
+	if !h.backendsAllowed(c, req.Backends) {
 		return
 	}
 

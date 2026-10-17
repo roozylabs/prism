@@ -22,6 +22,7 @@ func (m *resourceFinderMock) GetResourceWithBackends(ctx context.Context, userID
 }
 
 func TestResourceGatewayRestSuccess(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "GET", r.Method)
@@ -45,6 +46,7 @@ func TestResourceGatewayRestSuccess(t *testing.T) {
 }
 
 func TestResourceGatewayGraphqlSuccess(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := json.Marshal(r.Header.Get("Content-Type"))
@@ -74,6 +76,7 @@ func TestResourceGatewayGraphqlSuccess(t *testing.T) {
 }
 
 func TestResourceGatewayFailover(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
 	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
