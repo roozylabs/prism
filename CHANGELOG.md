@@ -42,6 +42,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Containers**: the API image is built with the pinned Go version, `-trimpath -ldflags="-s -w"`, on Alpine 3.22, and runs as an unprivileged user; the landing page image runs as `node`. `docker-compose.yml` sets CPU and memory limits, `pids_limit` and `no-new-privileges` on every service and `GOMEMLIMIT=768MiB` on the API.
 - **CI**: every GitHub Action is pinned to a commit SHA (Dependabot keeps them current), the API test job fails below `COVERAGE_MIN` and uploads the coverage profile, and the dashboard job typechecks before building.
 
+### Security
+- **Seeded admin account removed** (production readiness audit L1): migration 108 deletes `admin@roozylabs.com`, whose password and later hash were committed to the repository, together with its sessions, memberships, seeded routing policies and budget; credentials it was given by the 085 backfill stay unowned for an operator to reassign. Shared system providers are unaffected.
+- **User-supplied hosts go through the SSRF guard** (K1, K2, K11): provider `baseUrl` is validated on create and update and the gateway's upstream transport refuses private, loopback and link-local addresses at dial time; resource backends of type `postgres` are off by default (`RESOURCE_POSTGRES_ENABLED`) and, when on, their connection string must name a public host, checked again at every execution; REST and GraphQL resource endpoints are validated on save; MCP remote transports use the guarded dialer; the `ALLOW_INTERNAL_SSRF` / `IS_DEVELOPMENT` bypass now also requires `APP_ENV=development`.
+- **Session tokens stored hashed** (K4): the `session` table holds the SHA-256 of the bearer token; migration 109 hashes existing rows so current cookies keep working.
+- **Fail-fast configuration** (K5, K7, L4): outside development the API refuses to start with a default or missing database/Redis password, `ALLOWED_ORIGINS` containing `*` or a local origin, or an empty `CLOUDFLARE_SECRET_KEY` (unless `TURNSTILE_DISABLED=true`); `docker-compose.yml` requires `POSTGRES_PASSWORD` and `REDIS_PASSWORD` and no longer lists `http://localhost:3000` as a default origin. CORS origins now come from config instead of the middleware reading the environment.
+- **Failed migrations are fatal** (D4): a server started with `RUN_MIGRATIONS=true` no longer serves on a stale schema outside development.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added

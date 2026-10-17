@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -117,16 +118,21 @@ func newRemoteMCPClient(ctx context.Context, srv *models.MCPServer, encKey strin
 	}
 
 	headers := resolveMCPHeaders(srv, encKey)
+	// The URL was checked above, but the connection must be checked too:
+	// a host that resolved to a public address at validation time may
+	// resolve to a private one at dial time. No overall client timeout,
+	// since SSE sessions stay open.
+	httpClient := &http.Client{Transport: security.SafeHTTPTransport(30 * time.Second)}
 
 	var t transport.Interface
 	var err error
 	switch strings.ToLower(strings.TrimSpace(srv.TransportType)) {
 	case "sse":
-		t, err = transport.NewSSE(srv.EndpointURL, transport.WithHeaders(headers))
+		t, err = transport.NewSSE(srv.EndpointURL, transport.WithHeaders(headers), transport.WithHTTPClient(httpClient))
 	case "websocket", "ws":
 		return nil, fmt.Errorf("mcp server %q: websocket transport is not supported (remote endpoints support HTTP or SSE)", srv.Name)
 	default: // "http", "streamable", "" -> Streamable HTTP (Context7, etc.)
-		t, err = transport.NewStreamableHTTP(srv.EndpointURL, transport.WithHTTPHeaders(headers))
+		t, err = transport.NewStreamableHTTP(srv.EndpointURL, transport.WithHTTPHeaders(headers), transport.WithHTTPBasicClient(httpClient))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("build mcp transport for %q: %w", srv.Name, err)

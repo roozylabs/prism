@@ -79,6 +79,10 @@ func TestSystemProvidersAreReadOnlyForUsers(t *testing.T) {
 }
 
 func TestProviderChangesRequireOwnership(t *testing.T) {
+	// The fixture's base URLs are unresolvable; the outbound guard has its
+	// own test (TestProviderBaseURLMustBePublic).
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("ALLOW_INTERNAL_SSRF", "true")
 	h, store := newProviderTest()
 
 	assert.Equal(t, http.StatusNotFound, providerRequest(h, "alice", http.MethodPut, "bobs", `{"name":"x"}`).Code)

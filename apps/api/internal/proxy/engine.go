@@ -13,7 +13,6 @@ import (
 	"io"
 	"log"
 	"math/rand"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,6 +28,7 @@ import (
 	"github.com/roozylabs/prism/internal/models"
 	goredis "github.com/roozylabs/prism/internal/redis"
 	"github.com/roozylabs/prism/internal/repository"
+	"github.com/roozylabs/prism/internal/security"
 	"github.com/roozylabs/prism/internal/telemetry"
 	"github.com/roozylabs/prism/internal/utils"
 )
@@ -102,18 +102,15 @@ func NewEngine(router *Router, creds *repository.CredentialRepository, cooldown 
 		}
 	}
 
-	tr := &http.Transport{
-		Proxy: proxyFunc,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: 5 * time.Minute,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   50,
-		IdleConnTimeout:       90 * time.Second,
-	}
+	// Provider base URLs are user-supplied, so the dialer refuses private,
+	// loopback and link-local addresses at connect time (not only when the
+	// URL was saved), which also covers DNS rebinding. A GLOBAL_PROXY_URL
+	// is dialled through the same guard and must therefore be reachable at
+	// a public address.
+	tr := security.SafeHTTPTransport(5 * time.Minute)
+	tr.Proxy = proxyFunc
+	tr.TLSHandshakeTimeout = 15 * time.Second
+	tr.MaxIdleConnsPerHost = 50
 	return &Engine{
 		router:       router,
 		creds:        creds,
