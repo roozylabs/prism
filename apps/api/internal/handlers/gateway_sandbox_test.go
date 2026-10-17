@@ -52,6 +52,25 @@ func (sandboxPoliciesMock) ListByUserID(ctx context.Context, userID string) ([]m
 	return []models.GovernancePolicy{{ID: "pol_deny_" + userID, UserID: userID, Name: "Deny all", Effect: "deny", ModelPattern: "*", Enabled: true}}, nil
 }
 
+type sandboxRoutingPoliciesMock struct{}
+
+func (sandboxRoutingPoliciesMock) FindByID(ctx context.Context, id, userID string) (*models.RoutingPolicy, error) {
+	if id == "pol_"+userID {
+		return &models.RoutingPolicy{ID: id, UserID: userID, Name: "Quality", Enabled: true}, nil
+	}
+	return nil, repository.ErrNotMember
+}
+
+func (sandboxRoutingPoliciesMock) FindByName(ctx context.Context, name, userID string) (*models.RoutingPolicy, error) {
+	switch name {
+	case "Quality":
+		return &models.RoutingPolicy{ID: "pol_" + userID, UserID: userID, Name: name, Enabled: true}, nil
+	case "Retired":
+		return &models.RoutingPolicy{ID: "pol_old", UserID: userID, Name: name, Enabled: false}, nil
+	}
+	return nil, repository.ErrNotMember
+}
+
 func newSandboxRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -67,6 +86,7 @@ func newSandboxRouter(t *testing.T) *gin.Engine {
 	h := NewGatewayHandler(nil, nil, nil, nil, nil, nil, nil, rbacEngine, nil, nil, nil, orchestrator)
 	h.sandboxKeys = keys
 	h.SetMemberRoleResolver(sandboxRolesMock{})
+	h.SetRoutingPolicyFinder(sandboxRoutingPoliciesMock{})
 
 	r := gin.New()
 	asAttacker := func(c *gin.Context) {
@@ -129,6 +149,44 @@ func TestSandbox_DefaultsToCallersOwnKey(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), "pol_deny_user_attacker")
+}
+
+func postSandboxWithPolicy(r *gin.Engine, path, policy string) *httptest.ResponseRecorder {
+	body := []byte(`{"model":"prism-auto","messages":[{"role":"user","content":"Hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewBuffer(body))
+	req.Header.Set("X-Sandbox-Key-Prefix", "gw_sk_attacker")
+	req.Header.Set("X-Routing-Policy", policy)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// The policy selector used to be ignored. A policy the caller owns is
+// accepted and the request proceeds: on the sync path to admission, which
+// denies it in this fixture (403); on the async path to the job queue,
+// which is absent here (503). An unknown, foreign or disabled policy is
+// refused before anything else runs.
+func TestSandbox_RoutingPolicyHeaderIsHonoured(t *testing.T) {
+	r := newSandboxRouter(t)
+
+	accepted := map[string]int{
+		"/sandbox/chat/completions":       http.StatusForbidden,
+		"/sandbox/chat/completions/async": http.StatusServiceUnavailable,
+	}
+	for path, want := range accepted {
+		w := postSandboxWithPolicy(r, path, "pol_user_attacker")
+		assert.Equal(t, want, w.Code, "%s by id: %s", path, w.Body.String())
+		assert.NotContains(t, w.Body.String(), "routing_policy_not_found", path)
+
+		w = postSandboxWithPolicy(r, path, "Quality")
+		assert.Equal(t, want, w.Code, "%s by name: %s", path, w.Body.String())
+
+		for _, bad := range []string{"pol_user_victim", "no-such-policy", "Retired"} {
+			w = postSandboxWithPolicy(r, path, bad)
+			assert.Equal(t, http.StatusNotFound, w.Code, "%s with %q: %s", path, bad, w.Body.String())
+			assert.Contains(t, w.Body.String(), "routing_policy_not_found")
+		}
+	}
 }
 
 func TestSandbox_NoSessionUserRejected(t *testing.T) {

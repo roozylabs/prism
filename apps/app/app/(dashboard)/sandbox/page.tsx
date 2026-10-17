@@ -291,6 +291,7 @@ export default function SandboxPage() {
     output: number;
   } | null>(null);
   const [routedModel, setRoutedModel] = useState<string | null>(null);
+  const [routedPolicy, setRoutedPolicy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [isAsyncExecuting, setIsAsyncExecuting] = useState(false);
@@ -327,7 +328,7 @@ export default function SandboxPage() {
     resolver: zodResolver(sandboxSchema),
     defaultValues: {
       model: "prism-auto",
-      routingPolicy: "balanced",
+      routingPolicy: "",
       keyPrefix: keysList[0]?.keyPrefix || "",
       agentId: "default",
       enableStream: true,
@@ -335,6 +336,16 @@ export default function SandboxPage() {
       userPrompt: "",
     },
   });
+
+  // Policies are addressed by id. Once the list arrives, point the selector
+  // at the default policy (or the first one) unless a listed id is chosen.
+  React.useEffect(() => {
+    if (policiesList.length === 0) return;
+    const current = form.getValues("routingPolicy");
+    if (policiesList.some((p) => p.id === current)) return;
+    const preferred = policiesList.find((p) => p.isDefault) ?? policiesList[0];
+    form.setValue("routingPolicy", preferred.id);
+  }, [policiesList, form]);
 
   const handleJobCompleted = React.useCallback(
     (jobId: string, result: Record<string, unknown> | null | undefined, model?: string, startTime?: number) => {
@@ -447,6 +458,9 @@ export default function SandboxPage() {
             ...(values.agentId !== "default" && {
               "X-Prism-Agent-ID": values.agentId,
             }),
+            ...(values.model === "prism-auto" && values.routingPolicy && {
+              "X-Routing-Policy": values.routingPolicy,
+            }),
             ...(token && { Authorization: `Bearer ${token}` }),
           },
           body: JSON.stringify({
@@ -486,10 +500,13 @@ export default function SandboxPage() {
         stream: values.enableStream,
       });
 
-      const selectedHeaderModel = res.headers?.get("X-Prism-Selected-Model");
+      // The engine names the model and, for prism-auto, the policy that routed
+      // the request in response headers on both the streamed and plain paths.
+      const selectedHeaderModel = res.headers?.get("X-Prism-Model");
       if (selectedHeaderModel) {
         setRoutedModel(selectedHeaderModel);
       }
+      setRoutedPolicy(res.headers?.get("X-Prism-Routing-Policy") || null);
 
       if (values.enableStream && res.body) {
         const reader = res.body.getReader();
@@ -721,30 +738,18 @@ export default function SandboxPage() {
                                 </SelectTrigger>
                                 <SelectContent>
                                   {policiesList.length > 0 ? (
+                                    // The id is what the backend resolves; names
+                                    // are shown, not sent.
                                     policiesList.map((p) => (
-                                      <SelectItem
-                                        key={p.id}
-                                        value={p.name.toLowerCase()}
-                                      >
+                                      <SelectItem key={p.id} value={p.id}>
                                         {p.name}{" "}
                                         {p.isDefault ? "(Default)" : ""}
                                       </SelectItem>
                                     ))
                                   ) : (
-                                    <>
-                                      <SelectItem value="balanced">
-                                        Balanced (Optimal Balance)
-                                      </SelectItem>
-                                      <SelectItem value="quality">
-                                        Quality (Highest Accuracy)
-                                      </SelectItem>
-                                      <SelectItem value="cheap">
-                                        Cheap (Cost Efficient)
-                                      </SelectItem>
-                                      <SelectItem value="fast">
-                                        Fast (Highest Speed)
-                                      </SelectItem>
-                                    </>
+                                    <SelectItem value="__none__" disabled>
+                                      No routing policies yet; the built-in balanced policy applies
+                                    </SelectItem>
                                   )}
                                 </SelectContent>
                               </Select>
@@ -986,6 +991,14 @@ export default function SandboxPage() {
                     >
                       <LayersIcon className="h-3 w-3" />
                       Model: {routedModel}
+                    </Badge>
+                  )}
+                  {routedPolicy && (
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[10px] gap-1"
+                    >
+                      Policy: {routedPolicy}
                     </Badge>
                   )}
                   {latencyMs != null && (

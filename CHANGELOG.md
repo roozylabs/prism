@@ -5,6 +5,12 @@ All notable changes to the **RoozyLabs Prism** project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Routing rules are applied** (audit U7): rules created through `/api/routing-rules` were stored and never read. The router now pins a model slug matching an enabled rule's `modelPattern` (case-insensitive, `*` and `?` wildcards, lowest `priority` first) to the rule's provider, both for explicit models and for `prism-auto` candidates. A gateway key bound to a provider still wins; a rule whose provider or model is disabled falls through. The API validates `modelPattern` (non-empty, not only wildcards, up to 255 characters), rejects negative priorities and checks that `providerId` names one of the caller's providers.
+- **Sandbox routing policy selector works** (audit U8): the `X-Routing-Policy` header was never read, so every sandbox run used the default policy. The sandbox resolves the header as a routing policy id or exact name owned by the key's user (404 `routing_policy_not_found` otherwise, disabled policies included), on both the streaming and async paths. `X-Prism-Routing-Policy` now carries the name of the policy that routed a `prism-auto` request instead of echoing the model name. The dashboard selector lists real policies by id, defaults to the account's default policy, no longer offers invented fallback entries, sends the header on async runs too, and reads the routed model from `X-Prism-Model` (the `X-Prism-Selected-Model` header it read before was never set).
+
 ## [0.4.0] - 2026-09-01
 
 ### Added

@@ -223,6 +223,11 @@ func main() {
 	sseHandler := handlers.NewSSEHandler(eventPublisher)
 	googleOAuthHandler := handlers.NewGoogleOAuthHandler(credentialRepo, providerRepo, cfg.EncryptionKey)
 	routingRuleHandler := handlers.NewRoutingRuleHandler(routingRuleRepo)
+	routingRuleHandler.SetProviderStore(providerRepo)
+	// Rules pin model slugs to providers; the sandbox may name a routing
+	// policy for prism-auto requests.
+	router.SetRuleSource(routingRuleRepo)
+	gatewayHandler.SetRoutingPolicyFinder(routingPolicyRepo)
 	routingPolicyHandler := handlers.NewRoutingPolicyHandler(routingPolicyRepo)
 	budgetHandler := handlers.NewBudgetHandler(budgetRepo)
 	budgetStatusHandler := handlers.NewBudgetStatusHandler(budgetMgr)
