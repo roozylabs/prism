@@ -155,7 +155,14 @@ func (h *GatewayHandler) SetJobQueue(q *queue.JobQueue) {
 // @Router       /v1/chat/completions [post]
 func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	gatewayKey := c.MustGet("gatewayKey").(*models.GatewayAPIKey)
-	requestID := uuid.New().String()
+	// The correlation middleware echoed a sanitised id (the client's
+	// X-Request-ID or a UUID); the access log and error payloads carry it.
+	// request_logs and request_payloads key on a UUID, so a client id that
+	// is not one gets a UUID here, and the access log shows both.
+	requestID := middleware.GetRequestID(c)
+	if _, err := uuid.Parse(requestID); err != nil {
+		requestID = uuid.New().String()
+	}
 	c.Set("requestID", requestID)
 
 	if _, hasIdem := c.Get("_idem_key"); hasIdem {
@@ -484,7 +491,8 @@ func (h *GatewayHandler) AsyncChatCompletions(c *gin.Context) {
 	}
 
 	tenantCtx := middleware.GetTenantContext(c)
-	requestID := c.GetHeader("X-Request-ID")
+	// Sanitised by the correlation middleware, never the raw header.
+	requestID := middleware.GetRequestID(c)
 	if requestID == "" {
 		requestID = fmt.Sprintf("req_%d", time.Now().UnixNano())
 	}
