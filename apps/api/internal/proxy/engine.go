@@ -1092,6 +1092,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			}
 			log.Printf("stream interrupted mid-response: %v", err)
 			streamInterrupted = true
+			c.Set("_stream_interrupted", true)
 			_, _ = c.Writer.Write([]byte("data: {\"error\":{\"message\":\"stream interrupted upstream\",\"type\":\"stream_error\",\"partial\":true}}\n\n"))
 		}
 

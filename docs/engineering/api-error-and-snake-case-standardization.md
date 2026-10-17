@@ -59,7 +59,11 @@ All error responses returned by `apps/api` MUST adhere to the standard `ApiError
 | `403` | `agent_tool_denied` | `AGENT_TOOL_DENIED` | Agent tool execution forbidden |
 | `403` | `tenant_security_error` | `TENANT_FORBIDDEN` | Cross-tenant ownership violation |
 | `404` | `not_found_error` | `NOT_FOUND` | Resource/model/agent does not exist |
-| `429` | `rate_limit_error` | `TOO_MANY_REQUESTS` | Rate limit or quota cap exceeded |
+| `409` | `invalid_request_error` | `idempotency_conflict` | A request with this `Idempotency-Key` is still running |
+| `422` | `invalid_request_error` | `idempotency_key_reuse` | `Idempotency-Key` sent again with a different request |
+| `422` | `invalid_request_error` | `idempotency_replay_unavailable` | Stored result too large to replay; use a new key |
+| `429` | `rate_limit_error` | `RATE_LIMIT_EXCEEDED` | Per-key gateway rate limit; `Retry-After` says when to retry |
+| `429` | `rate_limit_error` | `TOO_MANY_REQUESTS` | Quota cap exceeded |
 | `500` | `internal_server_error` | `INTERNAL_ERROR` | Unhandled backend server exception |
 
 ---

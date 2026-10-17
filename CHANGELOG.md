@@ -5,6 +5,13 @@ All notable changes to the **RoozyLabs Prism** project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Gateway rate limit**: the check and the count now run in one Redis script, so concurrent requests cannot share a slot and a refused request no longer counts against the window. Each key's own `rateLimit` is enforced (it was ignored in favour of `RATE_LIMIT_PER_KEY`); keys created with a lower value now get that limit. Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`, and `429` carries `Retry-After`. A Redis failure still lets requests through, and is logged.
+- **Idempotency keys**: the lock belongs to the request that took it (release and renewal check the token) and is renewed while the request runs, so a long request no longer loses its lock after 120 seconds and a late release cannot drop another request's lock. The same `Idempotency-Key` with a different request answers `422 idempotency_key_reuse` instead of replaying the old response. Failed requests and interrupted streams are not stored. A response over 1 MiB is not kept; a retry answers `422 idempotency_replay_unavailable` instead of receiving a cut-off body.
+- **Gateway key revocation**: deleting a key drops it from the gateway's lookup cache at once (cache TTL 30 s → 10 s for other instances); unknown keys are remembered for 5 seconds so they stay off the database.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added
@@ -342,7 +349,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audit Trail — Tool Invocation Logging**: All tool calls (function name, call ID, arguments) captured in `tool_invocations` table for both streaming and non-streaming paths.
 - **Audit Trail — Failover History**: Failed credential attempts (429/401/403/5xx) recorded as JSONB `attempts` column on `request_logs`; `routing_decisions.actual_cost` backfilled after successful execution.
 - **Provider Health Scoring**: Real-time composite health score (0.0–1.0) per provider computed from last 24h success rate + latency, cached 30s, integrated into Smart Router scoring with health_penalty trace notes.
-- **Idempotency Key Support**: `Idempotency-Key` header on `/v1/chat/completions` enables 24h response replay for non-streaming requests and concurrency dedup via Redis locks.
+- **Idempotency Key Support**: `Idempotency-Key` header on `/v1/chat/completions` enables 24h response replay (streaming and non-streaming) and concurrency dedup via Redis locks.
 - **Cost Anomaly Detection**: Hourly spend anomaly detection via z-score analysis with SSE alerts and REST endpoint.
 - **Budget Threshold Alerts**: Automatic alert creation when budget usage crosses warning/critical/exceeded thresholds with daily dedup.
 

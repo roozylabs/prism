@@ -148,9 +148,12 @@ func (h *GatewayHandler) SetJobQueue(q *queue.JobQueue) {
 // @Param        X-Prism-Agent-ID header string false "Agent ID"
 // @Param        request body proxy.ProxyRequest true "Chat Completion Request Payload"
 // @Security     BearerAuth
+// @Param        Idempotency-Key header string false "Replays the stored response for 24h when the same key is sent again with the same request; a different request with the same key answers 422"
 // @Success      200 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{} "A request with this Idempotency-Key is still running"
+// @Failure      422 {object} map[string]interface{} "Idempotency-Key reused with a different request, or its stored result is too large to replay"
 // @Failure      429 {object} map[string]interface{}
 // @Router       /v1/chat/completions [post]
 func (h *GatewayHandler) ChatCompletions(c *gin.Context) {

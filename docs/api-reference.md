@@ -25,6 +25,14 @@ Optional Tenant Attribution Headers:
 - `X-Prism-Project-ID`: Project ID (default: `proj_default`)
 - `X-Prism-Agent-ID`: Agent Identity ID
 
+### Rate limits
+
+Each gateway key allows `rateLimit` requests per sliding minute (default 100). Every gateway response carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Beyond the limit the gateway answers `429` with code `RATE_LIMIT_EXCEEDED` and a `Retry-After` header in seconds; refused requests do not count against the window.
+
+### Idempotency
+
+Send `Idempotency-Key` on `POST /v1/chat/completions` to make a retry safe. The stored response is replayed for 24 hours with `Idempotent-Replay: true`, for streaming and non-streaming requests alike. While the first request is still running, a retry answers `409 idempotency_conflict`. The key is bound to the request: the same key with a different body or path answers `422 idempotency_key_reuse`. A response over 1 MiB is not kept, and a retry answers `422 idempotency_replay_unavailable`; send it with a new key. Failed requests and streams that broke off are not stored, so a retry runs them again.
+
 ### Control Plane Endpoints (`/api/*`)
 Protected control plane endpoints require Session Cookie / Bearer Token authentication.
 

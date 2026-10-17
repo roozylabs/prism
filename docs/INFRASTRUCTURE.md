@@ -269,14 +269,20 @@ Redis operations time out after 500 ms with one retry (unless `REDIS_URL` sets `
 
 | Feature | Without Redis |
 | --- | --- |
-| Per-key gateway rate limit, sign-in attempt limits | Not enforced (fail open) |
-| Idempotency keys | Requests run without replay protection |
+| Per-key gateway rate limit, sign-in attempt limits | Not enforced (fail open); the gateway logs this at most once every 10 seconds |
+| Idempotency keys | Requests run without replay protection or the in-flight lock |
 | Credential cooldowns | Cooling credentials may be tried again |
 | Async jobs | `POST .../async` answers `500`; queued jobs wait until Redis is back |
 | Live dashboard events (SSE) | Not delivered |
 | `/ready` | `503` |
 
 Redis is capped at `REDIS_MAXMEMORY` (default `512mb`) with `noeviction`: nothing is evicted, so at the cap writes fail as above instead of queued jobs disappearing.
+
+With Redis available, the gateway rate limit is a sliding one-minute window per gateway key, taken from the key's own `rate_limit` (or `RATE_LIMIT_PER_KEY` when the key has none). The check and the count run in one Redis script, and a refused request does not count, so a client that keeps retrying does not extend its own block. Idempotency locks belong to the request that took them, are renewed every 20 seconds while it runs and expire 60 seconds after the last renewal, so a crashed instance frees its keys within a minute.
+
+### Gateway key revocation
+
+Gateway key lookups are cached in memory for 10 seconds per instance. Deleting a key drops it from the cache of the instance that handled the delete at once; during a blue/green overlap the other instance keeps accepting the key for at most 10 seconds. Unknown keys are remembered for 5 seconds so a flood of invalid keys does not reach the database.
 
 ### 4.2 Generate Secure Secrets
 
