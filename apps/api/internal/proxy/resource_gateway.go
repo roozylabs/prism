@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -29,13 +30,24 @@ type dbPoolEntry struct {
 }
 
 type ResourceGateway struct {
-	finder ResourceFinder
-	mu     sync.Mutex
-	pools  map[string]*dbPoolEntry
+	finder          ResourceFinder
+	mu              sync.Mutex
+	pools           map[string]*dbPoolEntry
+	postgresEnabled bool
 }
 
 func NewResourceGateway(finder ResourceFinder) *ResourceGateway {
 	return &ResourceGateway{finder: finder, pools: make(map[string]*dbPoolEntry)}
+}
+
+// ErrPostgresBackendsDisabled is returned for a postgres backend while
+// RESOURCE_POSTGRES_ENABLED is off.
+var ErrPostgresBackendsDisabled = errors.New("postgres backends are disabled on this gateway")
+
+// SetPostgresEnabled allows postgres backends to run. Rows created before
+// the flag was turned off are refused as well, not only new ones.
+func (g *ResourceGateway) SetPostgresEnabled(enabled bool) {
+	g.postgresEnabled = enabled
 }
 
 type ResourceGatewayExecutor interface {
@@ -173,9 +185,17 @@ func (g *ResourceGateway) executePostgresBackend(ctx context.Context, b *models.
 	if b.ConnectionStringEncrypted == nil || b.SQLQuery == nil {
 		return nil, fmt.Errorf("backend %q missing connection string or sql query", b.Name)
 	}
+	if !g.postgresEnabled {
+		return nil, ErrPostgresBackendsDisabled
+	}
 	dsn, err := utils.DecryptAES256GCM(*b.ConnectionStringEncrypted, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt connection string: %w", err)
+	}
+	// The host is checked at every execution, so a row saved before the
+	// check existed cannot reach an internal database either.
+	if err := security.ValidatePostgresDSN(dsn); err != nil {
+		return nil, fmt.Errorf("connection string rejected: %w", err)
 	}
 	db, err := g.getPool(b.ID, dsn)
 	if err != nil {

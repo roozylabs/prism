@@ -67,8 +67,14 @@ func init() {
 	}
 }
 
-// isSSRFBypassAllowed returns true only if development/test bypass is explicitly enabled
+// isSSRFBypassAllowed reports whether the guard is switched off. Only a
+// development process may do that: APP_ENV=development together with
+// ALLOW_INTERNAL_SSRF=true (or the older IS_DEVELOPMENT=true). Either flag
+// on its own does nothing, so a stray variable cannot open production.
 func isSSRFBypassAllowed() bool {
+	if os.Getenv("APP_ENV") != "development" {
+		return false
+	}
 	return os.Getenv("ALLOW_INTERNAL_SSRF") == "true" || os.Getenv("IS_DEVELOPMENT") == "true"
 }
 
@@ -127,7 +133,42 @@ func ValidateOutboundURL(rawURL string) error {
 	if hostname == "" {
 		return errors.New("missing hostname in URL")
 	}
+	return validateHost(hostname)
+}
 
+// ErrDSNHostRequired is returned for a connection string without a host,
+// which lib/pq would turn into a local socket or localhost connection.
+var ErrDSNHostRequired = errors.New("connection string must name a host")
+
+// ValidatePostgresDSN checks the host of a postgres:// connection string
+// the way ValidateOutboundURL checks a URL: it must name a public host.
+// Key=value connection strings are refused because their host is optional.
+func ValidatePostgresDSN(dsn string) error {
+	if isSSRFBypassAllowed() {
+		return nil
+	}
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" {
+		return errors.New("empty connection string")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return fmt.Errorf("invalid connection string: %w", err)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "postgres" && scheme != "postgresql" {
+		return errors.New("connection string must start with postgres://")
+	}
+	hostname := u.Hostname()
+	if hostname == "" {
+		return ErrDSNHostRequired
+	}
+	return validateHost(hostname)
+}
+
+// validateHost refuses metadata and local names, then resolves the host and
+// refuses any private, loopback, link-local or reserved address.
+func validateHost(hostname string) error {
 	lowerHost := strings.ToLower(hostname)
 
 	// Block standard cloud metadata hostnames & local alias names
