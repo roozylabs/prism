@@ -161,7 +161,11 @@ type ProxyRequest struct {
 	Stream      bool                     `json:"stream"`
 	MaxTokens   int                      `json:"max_tokens,omitempty"`
 	Temperature float64                  `json:"temperature,omitempty"`
-	Extra       map[string]interface{}   `json:"-"`
+	// RoutingPolicyID selects the caller's routing policy for prism-auto
+	// requests (the sandbox sets it from X-Routing-Policy). It is kept out
+	// of Extra so it never reaches a provider, and survives async jobs.
+	RoutingPolicyID string                 `json:"routing_policy_id,omitempty"`
+	Extra           map[string]interface{} `json:"-"`
 }
 
 func (r *ProxyRequest) UnmarshalJSON(data []byte) error {
@@ -183,7 +187,7 @@ func (r *ProxyRequest) UnmarshalJSON(data []byte) error {
 	r.Extra = make(map[string]interface{})
 	for k, v := range rawMap {
 		switch k {
-		case "model", "messages", "tools", "tool_choice", "stream", "max_tokens", "temperature":
+		case "model", "messages", "tools", "tool_choice", "stream", "max_tokens", "temperature", "routing_policy_id":
 			// Known struct fields
 		default:
 			r.Extra[k] = v
@@ -302,9 +306,19 @@ func (e *Engine) resolveRoutes(c *gin.Context, req *ProxyRequest, gatewayKey *mo
 
 		var sPolicy *RoutingPolicy
 		if e.policyRepo != nil {
-			policy, err := e.policyRepo.FindByDefault(ctx, userID)
-			if err != nil || policy == nil {
-				policy, _ = e.policyRepo.FindByName(ctx, "balanced", userID)
+			var policy *models.RoutingPolicy
+			// The caller's chosen policy (owner-scoped), else their default.
+			if req.RoutingPolicyID != "" {
+				if p, err := e.policyRepo.FindByID(ctx, req.RoutingPolicyID, userID); err == nil && p != nil && p.Enabled {
+					policy = p
+				}
+			}
+			if policy == nil {
+				p, err := e.policyRepo.FindByDefault(ctx, userID)
+				if err != nil || p == nil {
+					p, _ = e.policyRepo.FindByName(ctx, "balanced", userID)
+				}
+				policy = p
 			}
 			if policy != nil {
 				sPolicy = &RoutingPolicy{
@@ -318,6 +332,11 @@ func (e *Engine) resolveRoutes(c *gin.Context, req *ProxyRequest, gatewayKey *mo
 		// Fallback to built-in balanced policy if no policy configured in DB
 		if sPolicy == nil {
 			sPolicy = DefaultRoutingPolicy()
+		}
+		// Tell the client which policy routed the request, before any
+		// stream header goes out.
+		if c != nil {
+			c.Header("X-Prism-Routing-Policy", sPolicy.Name)
 		}
 
 		// Check budget status for auto-downgrade

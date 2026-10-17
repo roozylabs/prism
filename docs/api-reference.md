@@ -88,6 +88,23 @@ List upstream credentials and health scores.
 ### `POST /api/routing/simulate`
 Dry-run routing decision evaluation.
 
+### `GET|POST /api/routing-rules`, `GET|PUT|DELETE /api/routing-rules/{id}`
+Routing rules pin a model slug to one of your providers. The router consults them for explicit models and for `prism-auto` candidates; a gateway key bound to a provider still takes precedence.
+
+```json
+{
+  "modelPattern": "claude-*",
+  "providerId": "<provider id>",
+  "priority": 1,
+  "enabled": true
+}
+```
+
+`modelPattern` is matched case-insensitively against the model slug; `*` matches any run of characters and `?` one character. A pattern made only of wildcards is rejected. Lower `priority` wins; `priority` must be at least 1 (0 on create means 1). `providerId` must be one of your providers (`400 PROVIDER_NOT_FOUND` otherwise). Reads need `routing:read`, writes `routing:update`.
+
+### `POST /api/sandbox/chat/completions` and `/async`
+Session-authenticated playground runs that use one of your gateway keys (`X-Sandbox-Key-Prefix`). For `prism-auto`, `X-Routing-Policy` names the routing policy to use, by id or exact name; it must be yours and enabled, else `404 routing_policy_not_found`. The response carries `X-Prism-Model`, `X-Prism-Provider`, `X-Prism-Failovers` and, for `prism-auto`, `X-Prism-Routing-Policy` with the name of the policy that routed the request.
+
 ---
 
 ## 4. System Health

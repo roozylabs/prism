@@ -19,7 +19,9 @@ export function useSandboxExecutionMutation() {
       if (payload.keyPrefix) {
         headers['X-Sandbox-Key-Prefix'] = payload.keyPrefix;
       }
-      if (payload.model === 'prism-auto') {
+      // The policy id (or exact name) the smart router should use; the
+      // backend answers 404 for one the caller does not own.
+      if (payload.model === 'prism-auto' && payload.routingPolicy) {
         headers['X-Routing-Policy'] = payload.routingPolicy;
       }
       if (payload.agentId && payload.agentId !== 'default') {
