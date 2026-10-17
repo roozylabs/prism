@@ -52,7 +52,13 @@ export function PermissionProvider({
 
   useEffect(() => {
     if (!isLoading && data) {
-      if (data.isOnboarded === false && pathname && !pathname.startsWith('/onboarding') && !pathname.startsWith('/signin')) {
+      if (
+        data.isOnboarded === false &&
+        pathname &&
+        !pathname.startsWith('/onboarding') &&
+        !pathname.startsWith('/signin') &&
+        !pathname.startsWith('/accept-invite')
+      ) {
         router.replace('/onboarding');
       }
     }

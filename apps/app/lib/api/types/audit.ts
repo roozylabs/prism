@@ -1,17 +1,18 @@
+/** One admin audit log entry, as GET /audit-trail/logs returns it. */
 export interface ApiAuditLogItem {
   id: string;
-  timestamp: string;
-  createdAt?: string;
+  organizationId: string;
+  createdAt: string;
   actorId: string;
   actorEmail?: string;
   action: string;
   resource?: string;
-  resourceType: string;
   resourceId?: string;
-  details?: Record<string, unknown>;
-  ipAddress?: string;
-  userAgent?: string;
-  status: 'success' | 'failure';
+  /** JSON string with identifiers and names of what changed; never secrets. */
+  detailsJson?: string;
+  actorIp?: string;
+  actorUserAgent?: string;
+  status: 'success' | 'denied' | 'flagged' | string;
 }
 
 export interface ApiAIAuditTrail {

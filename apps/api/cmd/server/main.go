@@ -19,6 +19,7 @@ import (
 	"github.com/roozylabs/prism/internal/database"
 	"github.com/roozylabs/prism/internal/featureflags"
 	"github.com/roozylabs/prism/internal/handlers"
+	"github.com/roozylabs/prism/internal/mail"
 	"github.com/roozylabs/prism/internal/middleware"
 	"github.com/roozylabs/prism/internal/proxy"
 	"github.com/roozylabs/prism/internal/queue"
@@ -241,7 +242,24 @@ func main() {
 	governancePolicyHandler := handlers.NewGovernancePolicyHandler(governancePolicyRepo, rbacEngine)
 	auditTrailHandler := handlers.NewAuditTrailHandler(auditTrailRepo, auditRecorder)
 	authzEngine := authz.NewAuthorizationEngine(rbacRepo, rbacRepo)
-	orgMemberHandler := handlers.NewOrganizationMemberHandler(rbacRepo)
+	orgMemberHandler := handlers.NewOrganizationMemberHandler(rbacRepo, userRepo)
+	if sender := mail.NewSMTPSender(mail.SMTPConfig{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password, From: cfg.SMTP.From,
+	}); sender != nil {
+		orgMemberHandler.SetMailer(sender, cfg.AppPublicURL)
+	} else {
+		log.Printf("mail: SMTP_HOST or SMTP_FROM not set; invitation links are returned to the inviter instead of emailed")
+	}
+	// Admin changes (members, keys, credentials, policies, settings, budgets)
+	// are written to the audit log the dashboard shows.
+	adminAudit := handlers.NewAdminAudit(auditTrailRepo, userRepo)
+	orgMemberHandler.SetAuditLog(adminAudit)
+	gatewayKeyHandler.SetAuditLog(adminAudit)
+	credentialHandler.SetAuditLog(adminAudit)
+	routingPolicyHandler.SetAuditLog(adminAudit)
+	governancePolicyHandler.SetAuditLog(adminAudit)
+	settingsHandler.SetAuditLog(adminAudit)
+	budgetHandler.SetAuditLog(adminAudit)
 	userPermissionsHandler := handlers.NewUserPermissionsHandler(rbacRepo, userRepo)
 	onboardingHandler := handlers.NewOnboardingHandler(db.DB, userRepo, gatewayKeyRepo)
 	oauthHandler := handlers.NewOAuthHandler(authService)
@@ -301,6 +319,8 @@ func main() {
 		api.GET("/auth/google/callback", oauthHandler.GoogleCallback)
 		api.GET("/auth/github/login", oauthHandler.GitHubLogin)
 		api.GET("/auth/github/callback", oauthHandler.GitHubCallback)
+		// An invitation link is opened before sign-in; the token is the secret.
+		api.GET("/auth/invites/:token", orgMemberHandler.PreviewInvite)
 
 		// Protected User-Scoped API routes (Session auth required, no active tenant required)
 		userProtected := api.Group("")
@@ -316,6 +336,8 @@ func main() {
 			userProtected.GET("/user/organizations", userPermissionsHandler.GetOrganizations)
 			userProtected.GET("/organizations", userPermissionsHandler.GetOrganizations)
 			userProtected.POST("/onboarding", onboardingHandler.Complete)
+			// The invitee is not a member yet, so no tenant context here.
+			userProtected.POST("/invites/accept", orgMemberHandler.AcceptInvite)
 		}
 
 		// Protected Tenant-Scoped API routes (Auth + Strict Tenant Membership required)
@@ -330,6 +352,8 @@ func main() {
 			// Organization Member Management
 			protected.GET("/organizations/members", requirePermission("member:read"), orgMemberHandler.ListMembers)
 			protected.POST("/organizations/invites", requirePermission("member:invite"), orgMemberHandler.InviteMember)
+			protected.GET("/organizations/invites", requirePermission("member:read"), orgMemberHandler.ListInvites)
+			protected.DELETE("/organizations/invites/:id", requirePermission("member:invite"), orgMemberHandler.RevokeInvite)
 			protected.PUT("/organizations/members/:userId", requirePermission("member:update"), orgMemberHandler.UpdateMemberRole)
 			protected.DELETE("/organizations/members/:userId", requirePermission("member:remove"), orgMemberHandler.RemoveMember)
 

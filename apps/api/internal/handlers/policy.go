@@ -12,11 +12,14 @@ import (
 
 type RoutingPolicyHandler struct {
 	policyRepo *repository.RoutingPolicyRepository
+	audit      *AdminAudit
 }
 
 func NewRoutingPolicyHandler(policyRepo *repository.RoutingPolicyRepository) *RoutingPolicyHandler {
 	return &RoutingPolicyHandler{policyRepo: policyRepo}
 }
+
+func (h *RoutingPolicyHandler) SetAuditLog(a *AdminAudit) { h.audit = a }
 
 func (h *RoutingPolicyHandler) List(c *gin.Context) {
 	userID := c.GetString("userId")
@@ -72,6 +75,7 @@ func (h *RoutingPolicyHandler) Create(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_CREATE")
 		return
 	}
+	h.audit.Record(c, "routing_policy.create", "routing_policy", policy.ID, map[string]any{"name": policy.Name})
 	c.JSON(http.StatusCreated, policy)
 }
 
@@ -111,6 +115,7 @@ func (h *RoutingPolicyHandler) Update(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_UPDATE")
 		return
 	}
+	h.audit.Record(c, "routing_policy.update", "routing_policy", existing.ID, map[string]any{"name": existing.Name, "enabled": existing.Enabled})
 	c.JSON(http.StatusOK, existing)
 }
 
@@ -121,6 +126,7 @@ func (h *RoutingPolicyHandler) Delete(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_DELETE")
 		return
 	}
+	h.audit.Record(c, "routing_policy.delete", "routing_policy", id, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "policy deleted"})
 }
 
@@ -131,6 +137,7 @@ func (h *RoutingPolicyHandler) SetDefault(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Routing policy", "POLICY_SET_DEFAULT")
 		return
 	}
+	h.audit.Record(c, "routing_policy.set_default", "routing_policy", id, nil)
 	policy, err := h.policyRepo.FindByID(c.Request.Context(), id, userID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "policy set as default"})

@@ -75,4 +75,8 @@ type AuditExportRequest struct {
 	StartDate string `json:"startDate"`
 	EndDate   string `json:"endDate"`
 	Search    string `json:"search"`
+	// Since and Until are StartDate and EndDate parsed by the handler; the
+	// repository filters on them.
+	Since *time.Time `json:"-"`
+	Until *time.Time `json:"-"`
 }
