@@ -71,7 +71,7 @@ export function DashboardTopbar() {
             >
               <Avatar className="h-8 w-8">
                 {avatarSrc && <AvatarImage src={avatarSrc} alt={displayName} />}
-                <AvatarFallback className="bg-[#7C3AED] text-white text-xs font-bold font-mono">
+                <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold font-mono">
                   {initials}
                 </AvatarFallback>
               </Avatar>
@@ -84,7 +84,7 @@ export function DashboardTopbar() {
                 <p className="text-xs font-semibold leading-none text-foreground truncate">{displayName}</p>
                 <p className="text-[11px] leading-none text-muted-foreground truncate">{email}</p>
                 <div className="pt-1">
-                  <span className="inline-flex items-center rounded-none px-1.5 py-0.5 text-[10px] font-medium font-mono bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                  <span className="inline-flex items-center rounded-none px-1.5 py-0.5 text-[10px] font-medium font-mono bg-secondary text-muted-foreground border border-border">
                     {role}
                   </span>
                 </div>

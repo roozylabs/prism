@@ -126,7 +126,7 @@ export function ModelActivityWidget({ collapsed }: { collapsed?: boolean }) {
   if (collapsed) {
     return (
       <div
-        className="flex items-center justify-center py-2 text-[#8B5CF6]"
+        className="flex items-center justify-center py-2 text-muted-foreground"
         title={`Active Router (prism-auto) | ${isRecentlyActive ? 'ACTIVE' : 'STANDBY'} | Model: ${isRecentlyActive ? activeModel : 'prism-auto'} | Key: ${activeCred}`}
       >
         <Activity className={`h-4 w-4 ${isRecentlyActive ? 'animate-pulse text-emerald-400' : 'text-muted-foreground'}`} />
@@ -154,7 +154,7 @@ export function ModelActivityWidget({ collapsed }: { collapsed?: boolean }) {
       <div className="space-y-1 font-mono text-xs pt-0.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 font-bold text-foreground">
-            <Layers className="h-3.5 w-3.5 text-[#8B5CF6]" />
+            <Layers className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="truncate max-w-[110px]">{isRecentlyActive ? activeModel : 'prism-auto'}</span>
           </div>
           <span className="text-muted-foreground text-[10px]">
@@ -164,7 +164,7 @@ export function ModelActivityWidget({ collapsed }: { collapsed?: boolean }) {
 
         {isRecentlyActive && activeCred && (
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground pt-0.5 truncate">
-            <KeyRound className="h-3 w-3 text-violet-400 shrink-0" />
+            <KeyRound className="h-3 w-3 text-muted-foreground shrink-0" />
             <span className="truncate">{activeCred}</span>
           </div>
         )}

@@ -18,7 +18,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
       {/* Brand Header */}
       <div className="relative z-10 mb-6 flex items-center gap-2.5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-none bg-[#7C3AED] text-white shadow-md border border-violet-400/30">
+        <div className="flex h-10 w-10 items-center justify-center rounded-none bg-[#7C3AED] text-white shadow-md border border-white/20">
           <Shield className="h-5 w-5" />
         </div>
         <div className="flex flex-col">

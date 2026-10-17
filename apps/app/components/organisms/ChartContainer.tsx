@@ -47,10 +47,10 @@ const CustomTooltip = ({ active, payload, label, modelKeys = [] }: CustomTooltip
     const totalRequests = rawData?.requests ?? 0;
 
     return (
-      <div className="rounded-md border border-violet-500/40 bg-slate-950/95 px-3 py-2.5 shadow-2xl backdrop-blur-md min-w-[180px]">
+      <div className="rounded-md border border-slate-800 bg-slate-950/95 px-3 py-2.5 shadow-2xl backdrop-blur-md min-w-[180px]">
         <div className="flex items-center justify-between border-b border-white/10 pb-1.5 mb-2 text-[11px] font-mono text-slate-400">
           <span className="font-semibold text-slate-200">{label}</span>
-          <span className="font-bold text-[#8B5CF6]">{Number(totalRequests).toLocaleString()} total req</span>
+          <span className="font-bold text-slate-100">{Number(totalRequests).toLocaleString()} total req</span>
         </div>
 
         {modelKeys.length > 0 ? (
@@ -73,7 +73,7 @@ const CustomTooltip = ({ active, payload, label, modelKeys = [] }: CustomTooltip
         ) : (
           <div className="flex items-center justify-between gap-4 text-xs font-mono">
             <span className="text-slate-300">Requests:</span>
-            <span className="font-bold text-[#8B5CF6]">{Number(totalRequests).toLocaleString()} req</span>
+            <span className="font-bold text-slate-100">{Number(totalRequests).toLocaleString()} req</span>
           </div>
         )}
       </div>
