@@ -280,7 +280,7 @@ export default function SignUpPage() {
             Already have an account?{' '}
             <Link
               href={AppRoutes.SIGNIN}
-              className="font-medium text-foreground hover:text-violet-400 underline underline-offset-4 transition-colors"
+              className="font-medium text-foreground hover:text-foreground underline underline-offset-4 transition-colors"
             >
               Sign in
             </Link>

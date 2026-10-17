@@ -96,7 +96,7 @@ export default function OnboardingPage() {
       {/* Top User Context & Sign Out Bar */}
       <div className="flex items-center justify-between bg-card/70 border border-border px-3.5 py-2 mb-3 shadow-sm backdrop-blur-sm">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="h-6 w-6 rounded-full bg-violet-500/20 text-violet-400 flex items-center justify-center font-mono text-[10px] font-bold shrink-0">
+          <div className="h-6 w-6 rounded-full bg-secondary text-foreground flex items-center justify-center font-mono text-[10px] font-bold shrink-0">
             {user?.name ? user.name.charAt(0).toUpperCase() : <UserIcon className="h-3 w-3" />}
           </div>
           <span className="text-xs text-muted-foreground truncate font-mono">
@@ -142,7 +142,7 @@ export default function OnboardingPage() {
                             <button
                               type="button"
                               onClick={handleFillDefaults}
-                              className="text-[11px] font-mono text-violet-400 hover:text-violet-300 flex items-center gap-1 cursor-pointer"
+                              className="text-[11px] font-mono text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
                             >
                               <Zap className="h-3 w-3" />
                               <span>Auto-fill</span>

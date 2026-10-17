@@ -259,7 +259,7 @@ function SignInForm() {
             Don&apos;t have an account?{' '}
             <Link
               href={AppRoutes.SIGNUP}
-              className="font-medium text-foreground hover:text-violet-400 underline underline-offset-4 transition-colors"
+              className="font-medium text-foreground hover:text-foreground underline underline-offset-4 transition-colors"
             >
               Sign up
             </Link>

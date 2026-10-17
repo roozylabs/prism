@@ -101,7 +101,7 @@ export default function ErrorBoundaryPage({
             {/* Quick Diagnostic Tips */}
             <div className="rounded-none border border-border bg-muted/30 p-3 text-xs space-y-1.5">
               <p className="font-semibold font-mono text-[11px] text-foreground flex items-center gap-1.5">
-                <Activity className="h-3.5 w-3.5 text-violet-400" />
+                <Activity className="h-3.5 w-3.5 text-muted-foreground" />
                 Automatic Recovery Suggestions:
               </p>
               <ul className="list-disc list-inside text-muted-foreground space-y-0.5 text-[11px]">
@@ -118,7 +118,7 @@ export default function ErrorBoundaryPage({
               className="w-full sm:w-1/2 gap-2 text-xs"
               onClick={() => reset()}
             >
-              <RefreshCw className="h-4 w-4 text-violet-400" />
+              <RefreshCw className="h-4 w-4 text-muted-foreground" />
               Try Again
             </Button>
             <Button asChild variant="prismViolet" className="w-full sm:w-1/2 gap-2 text-xs">

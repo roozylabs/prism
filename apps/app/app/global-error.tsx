@@ -63,7 +63,7 @@ export default function GlobalError({
             <button
               type="button"
               onClick={() => reset()}
-              className="w-full flex items-center justify-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2.5 px-4 text-xs font-semibold transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground py-2.5 px-4 text-xs font-semibold transition-colors cursor-pointer"
             >
               <RefreshCw className="h-4 w-4" />
               Re-initialize Kernel UI

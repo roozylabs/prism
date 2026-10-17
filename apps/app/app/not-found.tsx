@@ -24,7 +24,7 @@ export default function NotFoundPage() {
 
       {/* Brand Header */}
       <div className="relative z-10 mb-6 flex items-center gap-2.5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-none bg-[#7C3AED] text-white shadow-md border border-violet-400/30">
+        <div className="flex h-10 w-10 items-center justify-center rounded-none bg-[#7C3AED] text-white shadow-md border border-white/20">
           <Shield className="h-5 w-5" />
         </div>
         <div className="flex flex-col">
@@ -47,7 +47,7 @@ export default function NotFoundPage() {
               </Badge>
             </div>
             <div className="relative py-2">
-              <span className="text-7xl font-extrabold font-mono tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-violet-500 via-purple-400 to-indigo-500 select-none drop-shadow-sm">
+              <span className="text-7xl font-extrabold font-mono tracking-widest text-foreground select-none">
                 404
               </span>
             </div>
@@ -64,7 +64,7 @@ export default function NotFoundPage() {
             <div className="rounded-none border border-border bg-muted/40 p-3 font-mono text-xs">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
                 <span className="uppercase font-semibold">Unresolved Target Route:</span>
-                <span className="text-violet-400">UNRESOLVED_URI</span>
+                <span className="text-muted-foreground">UNRESOLVED_URI</span>
               </div>
               <p className="font-semibold text-foreground break-all select-all bg-background/80 px-2 py-1 border border-border/60">
                 {pathname || '/unknown-route'}
@@ -79,25 +79,25 @@ export default function NotFoundPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Button asChild variant="outline" size="sm" className="justify-start gap-2 h-9 text-xs">
                   <Link href="/logs">
-                    <Terminal className="h-3.5 w-3.5 text-violet-400" />
+                    <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
                     <span>Real-Time Logs</span>
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="justify-start gap-2 h-9 text-xs">
                   <Link href="/gateway-keys">
-                    <Key className="h-3.5 w-3.5 text-violet-400" />
+                    <Key className="h-3.5 w-3.5 text-muted-foreground" />
                     <span>Gateway Keys</span>
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="justify-start gap-2 h-9 text-xs">
                   <Link href="/models">
-                    <Shield className="h-3.5 w-3.5 text-violet-400" />
+                    <Shield className="h-3.5 w-3.5 text-muted-foreground" />
                     <span>Model Catalog</span>
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="justify-start gap-2 h-9 text-xs">
                   <Link href="/playground">
-                    <HelpCircle className="h-3.5 w-3.5 text-violet-400" />
+                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
                     <span>Prompt Playground</span>
                   </Link>
                 </Button>
