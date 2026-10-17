@@ -550,7 +550,7 @@ func (r *RequestLogRepository) GetAgentStats(ctx context.Context, userID, agentI
 		SELECT COUNT(*),
 		       COALESCE(SUM(rl.total_tokens), 0),
 		       COALESCE(SUM(rl.cost_usd), 0),
-		       COALESCE(AVG(rl.latency_ms), 0),
+		       ROUND(COALESCE(AVG(rl.latency_ms), 0))::int,
 		       COALESCE(SUM(CASE WHEN rl.status_code >= 200 AND rl.status_code < 300 THEN 1 ELSE 0 END), 0)
 		FROM request_logs rl
 		WHERE rl.agent_id = $1
