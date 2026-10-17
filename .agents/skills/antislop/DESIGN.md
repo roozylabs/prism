@@ -19,8 +19,9 @@ Personality: precise, dense, trustworthy, calm. The feel is that of a serious op
 ## Palette
 
 - **Core neutrals:** the shadcn-style neutral scale defined in `apps/app/app/globals.css` (`--background`, `--card`, `--border`, `--muted`, `--foreground`). These carry the interface.
-- **Primary accent (the single deliberate accent):** Prism Violet `#8B5CF6` (`--primary`, `--ring`). Used sparingly for primary actions, active navigation, focus rings, and key highlights. Reason: it is the established brand accent and gives a single focal color for action without noise.
-- **Semantic/status (data-meaning only):** Cyan `#06B6D4`, Emerald `#10B981`, Amber `#F59E0B`, Red `#EF4444` for charts and status. These carry meaning (success, warning, error, data series), not decoration.
+- **Action colour (no chromatic accent in the dashboard):** `--primary` and `--ring` are the foreground value (`#0f1729` light, `#f8fafc` dark). The primary button is the one solid block on a screen, the active nav item is a foreground bar on the `--accent` ground, the focus ring is a 1px foreground line. Reason: the console is read for state all day, and a second coloured element competes with the status dots; hierarchy comes from weight, contrast and position. Decided 2026-10-17 from the accent comparison in `docs/design-v2/prism-accent-comparison.html`.
+- **Brand hue:** Prism Violet `#8B5CF6` appears in the dashboard only on the brand-mark square (sidebar, auth layout, error pages) and as chart series 1. The landing page (`apps/web`) keeps violet for its CTAs and the word Prism in the wordmark. Small violet text uses `#7C3AED`.
+- **Semantic/status (data-meaning only):** Cyan `#06B6D4`, Emerald `#10B981`, Amber `#F59E0B`, Red `#EF4444` for charts and status. These carry meaning (success, warning, error, data series), not decoration. An info toast uses cyan.
 - **Console surfaces:** the dedicated `--console-*` tokens for terminal-like surfaces (sandbox, playground, code output), supporting the developer-tool identity.
 
 ## Typography

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="id" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prism accent comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#ffffff;--card:#ffffff;--sec:#f1f5f9;--fg:#0f1729;--muted:#64748b;--border:#e2e8f0;--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",monospace}
+[data-theme="dark"]{--bg:#090a0c;--card:#0f1115;--sec:#191d24;--fg:#f8fafc;--muted:#94a3b8;--border:#1b1f27}
+.opt[data-opt="A"]{--p:#7c3aed;--on:#ffffff;--pt:#6d28d9}[data-theme="dark"] .opt[data-opt="A"]{--p:#c4b5fd;--on:#0f1729;--pt:#c4b5fd}.opt[data-opt="B"]{--p:#b4350f;--on:#ffffff;--pt:#9a2e0c}[data-theme="dark"] .opt[data-opt="B"]{--p:#fdba74;--on:#1c1007;--pt:#fdba74}.opt[data-opt="C"]{--p:#0f1729;--on:#ffffff;--pt:#0f1729}[data-theme="dark"] .opt[data-opt="C"]{--p:#f8fafc;--on:#0f1729;--pt:#f8fafc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/20px var(--sans)}
+@keyframes pulse{50%{opacity:.5}}.pulse{animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite}
+.bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 24px;border-bottom:1px solid var(--border);background:var(--card)}
+.bar h1{margin:0;font:600 14px/20px var(--sans)}.bar p{margin:0;font-size:12px;color:var(--muted)}
+.tg{height:32px;padding:0 12px;border:1px solid var(--border);background:var(--card);color:var(--fg);font:500 12px/16px var(--mono);cursor:pointer}.tg:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto;padding:24px 16px 64px}
+.opt{margin:0 0 48px}.oh{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;margin:0 0 12px}.oh h2{margin:0;font:600 16px/24px var(--sans)}.oh p{margin:4px 0 0;font-size:12px;color:var(--muted);max-width:520px}.stats{font:400 11px/16px var(--mono);max-width:460px;text-align:right}
+.screen{display:grid;grid-template-columns:200px 1fr;border:1px solid var(--border);background:var(--bg);overflow:hidden}
+.sb{border-right:1px solid var(--border);background:var(--card);padding:0 8px 12px}.sbh{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px;border-bottom:1px solid var(--border);margin:0 -8px 12px}
+.mark{display:flex;width:28px;height:28px;align-items:center;justify-content:center;background:var(--p);color:var(--on)}.wm{font:700 16px/24px var(--mono);letter-spacing:-.025em}.wm small{font:400 12px var(--mono);color:var(--muted)}
+.grp{padding:0 12px;margin:12px 0 4px;font:600 10px/16px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.ni{position:relative;display:flex;align-items:center;gap:12px;padding:8px 12px;font:500 12px/16px var(--sans);color:var(--muted);text-decoration:none}.ni:hover{background:var(--sec);color:var(--fg)}.ni.on{background:color-mix(in srgb,var(--p) 10%,transparent);color:var(--pt);font-weight:600}.ni.on::before{content:"";position:absolute;left:0;top:50%;width:4px;height:16px;transform:translateY(-50%);background:var(--p)}
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+main{padding:0 20px 20px}.top{display:flex;justify-content:space-between;align-items:center;height:56px;margin:0 -20px 20px;padding:0 20px;border-bottom:1px solid var(--border);font-size:12px}.tenant{font:500 12px var(--mono)}
+.ph{display:flex;justify-content:space-between;align-items:center;margin:0 0 20px}.ph h1{margin:0;font:700 24px/32px var(--sans);letter-spacing:-.025em}.ph p{margin:4px 0 0;font-size:12px}
+.muted{color:var(--muted)}.mono{font-family:var(--mono);font-size:12px}
+.btn{display:inline-flex;align-items:center;height:36px;padding:0 16px;border:1px solid transparent;font:500 14px/20px var(--sans);cursor:pointer;background:transparent;color:var(--fg)}.btn.primary{background:var(--p);color:var(--on);box-shadow:0 1px 3px rgba(0,0,0,.1)}.btn.outline{border-color:var(--border);background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.05)}.btn.ghost:hover,.btn.outline:hover{background:var(--sec)}.btn.sm{height:32px;padding:0 12px;font-size:12px}.btn:focus-visible{outline:none;box-shadow:0 0 0 1px var(--p)}
+.card{border:1px solid var(--border);background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.05)}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:0 0 20px}.m{padding:20px}.ml{font:600 12px/16px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}.mv{margin-top:8px;font:700 24px/32px var(--mono);letter-spacing:-.025em}.cap{margin:4px 0 0;font-size:11px;line-height:16px}
+.badge{display:inline-block;padding:2px 10px;font:600 12px/16px var(--sans);background:var(--p);color:var(--on)}
+.tb{display:flex;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}.inp{height:32px;width:240px;border:1px solid var(--border);background:transparent;padding:0 12px;color:var(--fg)}.inp.focus{box-shadow:0 0 0 1px var(--p);outline:none}
+table{width:100%;border-collapse:collapse}thead{background:color-mix(in srgb,var(--sec) 40%,transparent)}th{font:500 11px/16px var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 16px;border-bottom:1px solid var(--border)}td{padding:10px 16px;border-top:1px solid var(--border)}tr:hover td{background:color-mix(in srgb,var(--sec) 30%,transparent)}
+.sd{display:inline-flex;align-items:center;gap:6px;font:500 12px/16px var(--sans)}.dot{display:inline-block;width:8px;height:8px;border-radius:9999px}
+.pg{display:flex;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border);font-size:12px}.lnk{color:var(--pt);text-decoration:underline;text-underline-offset:3px}
+@media (max-width:900px){.screen{grid-template-columns:1fr}.sb{display:none}.metrics{grid-template-columns:1fr}.oh{flex-direction:column;align-items:flex-start}.stats{text-align:left}.top{display:none}}
+</style></head>
+<body>
+<div class="bar"><div><h1>Prism: perbandingan aksen pada layar Providers</h1><p>Layar yang sama tiga kali; hanya token primary, on-primary dan teks aksen yang berbeda. Angka kontras dihitung dari nilai hex.</p></div><button class="tg" id="tg" aria-pressed="false">Tema: light</button></div>
+<div class="wrap">
+<section class="opt" data-opt="A">
+<header class="oh"><div><h2>Opsi 1: violet diperbaiki</h2><p>Aksen tetap Prism Violet, nilainya digeser agar label lolos AA: violet-600 di light, violet-300 dengan teks gelap di dark.</p></div><p class="stats">light: label di atas primary 5.7:1, teks aksen di card 7.1:1, ring di canvas 5.7:1 · dark: label di atas primary 9.7:1, teks aksen di card 10.2:1, ring di canvas 10.7:1</p></header>
+<div class="screen">
+<aside class="sb">
+<div class="sbh"><span class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="wm">PRISM <small>v0.4.0</small></span></div>
+<div class="grp">Gateway</div>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Overview</a>
+<a href="#" class="ni on"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>Providers</a>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>Models</a>
+<div class="grp">Infrastructure</div>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>API Keys</a>
+</aside>
+<main>
+<div class="top"><span class="tenant">roozylabs <span class="muted">/ production</span></span><span class="sd"><span class="dot" style="background:#10b981"></span> Gateway healthy</span></div>
+<div class="ph"><div><h1>Providers</h1><p class="muted">Upstream model providers and their credential pools.</p></div><button class="btn primary">Add provider</button></div>
+<div class="metrics">
+<div class="card m"><div class="ml">Active providers</div><div class="mv">[REAL DATA]</div><p class="muted cap">placeholder, bukan contoh angka</p></div>
+<div class="card m"><div class="ml">Requests (24h)</div><div class="mv"><span class="muted pulse">...</span></div><p class="muted cap">Loading from the API</p></div>
+<div class="card m"><div class="ml">Default policy</div><div class="mv" style="font-size:14px;line-height:32px"><span class="badge">prism-auto</span></div><p class="muted cap">Routing policy applied to new keys</p></div>
+</div>
+<div class="card">
+<div class="tb"><input class="inp mono focus" value="anth" aria-label="Search providers"><button class="btn outline sm">Refresh</button></div>
+<table><thead><tr><th>Provider</th><th>Type</th><th>Status</th><th>Latency</th><th></th></tr></thead><tbody><tr><td class="mono">openai</td><td>openai</td><td><span class="sd"><span class="dot" style="background:#10b981"></span> Healthy</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">anthropic</td><td>anthropic</td><td><span class="sd"><span class="dot" style="background:#f59e0b;animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite"></span> Cooldown</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">google</td><td>google</td><td><span class="sd"><span class="dot" style="background:#10b981"></span> Healthy</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">opencode</td><td>opencode</td><td><span class="sd"><span class="dot" style="background:#94a3b8"></span> Disabled</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr></tbody></table>
+<div class="pg muted"><span>Page 1 of 1</span><span>Selected: <a href="#" class="lnk">anthropic</a></span></div>
+</div>
+</main>
+</div>
+</section>
+<section class="opt" data-opt="B">
+<header class="oh"><div><h2>Opsi 2: aksen rust</h2><p>Satu aksen hangat yang jarang dipakai tool AI. Risiko: berdekatan dengan amber status degraded, jadi dot degraded harus selalu bersama kata.</p></div><p class="stats">light: label di atas primary 6.1:1, teks aksen di card 7.6:1, ring di canvas 6.1:1 · dark: label di atas primary 11.1:1, teks aksen di card 11.2:1, ring di canvas 11.7:1</p></header>
+<div class="screen">
+<aside class="sb">
+<div class="sbh"><span class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="wm">PRISM <small>v0.4.0</small></span></div>
+<div class="grp">Gateway</div>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Overview</a>
+<a href="#" class="ni on"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>Providers</a>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>Models</a>
+<div class="grp">Infrastructure</div>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>API Keys</a>
+</aside>
+<main>
+<div class="top"><span class="tenant">roozylabs <span class="muted">/ production</span></span><span class="sd"><span class="dot" style="background:#10b981"></span> Gateway healthy</span></div>
+<div class="ph"><div><h1>Providers</h1><p class="muted">Upstream model providers and their credential pools.</p></div><button class="btn primary">Add provider</button></div>
+<div class="metrics">
+<div class="card m"><div class="ml">Active providers</div><div class="mv">[REAL DATA]</div><p class="muted cap">placeholder, bukan contoh angka</p></div>
+<div class="card m"><div class="ml">Requests (24h)</div><div class="mv"><span class="muted pulse">...</span></div><p class="muted cap">Loading from the API</p></div>
+<div class="card m"><div class="ml">Default policy</div><div class="mv" style="font-size:14px;line-height:32px"><span class="badge">prism-auto</span></div><p class="muted cap">Routing policy applied to new keys</p></div>
+</div>
+<div class="card">
+<div class="tb"><input class="inp mono focus" value="anth" aria-label="Search providers"><button class="btn outline sm">Refresh</button></div>
+<table><thead><tr><th>Provider</th><th>Type</th><th>Status</th><th>Latency</th><th></th></tr></thead><tbody><tr><td class="mono">openai</td><td>openai</td><td><span class="sd"><span class="dot" style="background:#10b981"></span> Healthy</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">anthropic</td><td>anthropic</td><td><span class="sd"><span class="dot" style="background:#f59e0b;animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite"></span> Cooldown</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">google</td><td>google</td><td><span class="sd"><span class="dot" style="background:#10b981"></span> Healthy</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">opencode</td><td>opencode</td><td><span class="sd"><span class="dot" style="background:#94a3b8"></span> Disabled</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr></tbody></table>
+<div class="pg muted"><span>Page 1 of 1</span><span>Selected: <a href="#" class="lnk">anthropic</a></span></div>
+</div>
+</main>
+</div>
+</section>
+<section class="opt" data-opt="C">
+<header class="oh"><div><h2>Opsi 3: tanpa aksen kromatik</h2><p>Tombol utama memakai foreground. Warna hanya muncul sebagai status, hierarki aksi ditanggung kontras dan posisi.</p></div><p class="stats">light: label di atas primary 17.9:1, teks aksen di card 17.9:1, ring di canvas 17.9:1 · dark: label di atas primary 17.1:1, teks aksen di card 18.1:1, ring di canvas 18.9:1</p></header>
+<div class="screen">
+<aside class="sb">
+<div class="sbh"><span class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="wm">PRISM <small>v0.4.0</small></span></div>
+<div class="grp">Gateway</div>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Overview</a>
+<a href="#" class="ni on"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>Providers</a>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>Models</a>
+<div class="grp">Infrastructure</div>
+<a href="#" class="ni"><svg class="i" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>API Keys</a>
+</aside>
+<main>
+<div class="top"><span class="tenant">roozylabs <span class="muted">/ production</span></span><span class="sd"><span class="dot" style="background:#10b981"></span> Gateway healthy</span></div>
+<div class="ph"><div><h1>Providers</h1><p class="muted">Upstream model providers and their credential pools.</p></div><button class="btn primary">Add provider</button></div>
+<div class="metrics">
+<div class="card m"><div class="ml">Active providers</div><div class="mv">[REAL DATA]</div><p class="muted cap">placeholder, bukan contoh angka</p></div>
+<div class="card m"><div class="ml">Requests (24h)</div><div class="mv"><span class="muted pulse">...</span></div><p class="muted cap">Loading from the API</p></div>
+<div class="card m"><div class="ml">Default policy</div><div class="mv" style="font-size:14px;line-height:32px"><span class="badge">prism-auto</span></div><p class="muted cap">Routing policy applied to new keys</p></div>
+</div>
+<div class="card">
+<div class="tb"><input class="inp mono focus" value="anth" aria-label="Search providers"><button class="btn outline sm">Refresh</button></div>
+<table><thead><tr><th>Provider</th><th>Type</th><th>Status</th><th>Latency</th><th></th></tr></thead><tbody><tr><td class="mono">openai</td><td>openai</td><td><span class="sd"><span class="dot" style="background:#10b981"></span> Healthy</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">anthropic</td><td>anthropic</td><td><span class="sd"><span class="dot" style="background:#f59e0b;animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite"></span> Cooldown</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">google</td><td>google</td><td><span class="sd"><span class="dot" style="background:#10b981"></span> Healthy</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr><tr><td class="mono">opencode</td><td>opencode</td><td><span class="sd"><span class="dot" style="background:#94a3b8"></span> Disabled</span></td><td class="mono">-</td><td><button class="btn ghost sm">Edit</button></td></tr></tbody></table>
+<div class="pg muted"><span>Page 1 of 1</span><span>Selected: <a href="#" class="lnk">anthropic</a></span></div>
+</div>
+</main>
+</div>
+</section></div>
+<script>
+const b=document.getElementById('tg'),h=document.documentElement;
+b.addEventListener('click',()=>{const d=h.dataset.theme==='dark';h.dataset.theme=d?'light':'dark';b.textContent='Tema: '+(d?'light':'dark');b.setAttribute('aria-pressed',String(!d))});
+document.querySelectorAll('a[href="#"]').forEach(a=>a.addEventListener('click',e=>e.preventDefault()));
+</script>
+</body></html>

@@ -1,5 +1,6 @@
 # RoozyLabs Prism — Design System
-**Version:** 1.0.0  
+**Version:** 1.0.0 (superseded)  
+> Superseded on 2026-10-17 by the RoozyLabs Prism design system artifact and `.agents/skills/antislop/DESIGN.md`: the shipped UI is square-cornered, light by default with a dark theme, uses no spectrum gradient, and since the accent decision its dashboard primary is the foreground colour with violet reserved for the brand mark and the landing page. Kept for history.  
 **Core Concept:** *Prism = one interface, many intelligences.*  
 **Philosophy:** A single resilient core that refracts and routes requests across diverse AI providers and foundation models. Visual identity embraces beams, spectrums, refraction, layers, and nodes—executed with strict restraint and precision.
 

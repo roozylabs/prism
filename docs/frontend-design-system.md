@@ -17,7 +17,7 @@ Prism uses Tailwind CSS with CSS custom variables defined in `globals.css` that 
 | **Foreground** | `text-foreground` | Primary text (`#F8FAFC` dark) |
 | **Card / Surface** | `bg-card` | Elevated card surfaces (`#0D0F18` dark) |
 | **Border / Muted** | `border-border`, `bg-muted` | Structural dividers & secondary backgrounds (`#1E2235`) |
-| **Primary (Prism Violet)** | `bg-primary`, `text-primary` | Brand accent and primary CTAs (`#8B5CF6` / `#7C3AED`) |
+| **Primary (ink)** | `bg-primary`, `text-primary` | Primary actions, active nav bar, focus ring; the foreground value (`#0F1729` light / `#F8FAFC` dark). Violet `#8B5CF6` is brand-mark and chart-series-1 only |
 | **Success / Healthy** | `text-emerald-500`, `bg-emerald-500` | Operational status, positive trends, healthy state |
 | **Warning / Degraded** | `text-amber-500`, `bg-amber-500` | Cooldown, approaching budget threshold |
 | **Destructive / Error** | `text-destructive`, `bg-destructive` | Failed requests, circuit breaker tripped, delete actions |
