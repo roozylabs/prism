@@ -10,9 +10,29 @@ services:
     # Longer than SHUTDOWN_TIMEOUT_SECONDS so in-flight LLM streams can drain
     # before Docker sends SIGKILL (default grace period is 10s).
     stop_grace_period: 45s
+    # One CPU and 1 GiB: the gateway is I/O bound, and the memory cap keeps a
+    # leak or a burst of large requests from taking the host down. GOMEMLIMIT
+    # below tells the Go runtime to collect before the cap is hit.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+          pids: 512
+        reservations:
+          memory: 256m
+    security_opt:
+      - no-new-privileges:true
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-8080}
+      GOMEMLIMIT: ${GOMEMLIMIT:-768MiB}
+      LOG_FORMAT: ${LOG_FORMAT:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      OTEL_ENABLED: ${OTEL_ENABLED:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      OTEL_SAMPLING_RATE: ${OTEL_SAMPLING_RATE:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
@@ -71,9 +91,29 @@ services:
     # Longer than SHUTDOWN_TIMEOUT_SECONDS so in-flight LLM streams can drain
     # before Docker sends SIGKILL (default grace period is 10s).
     stop_grace_period: 45s
+    # One CPU and 1 GiB: the gateway is I/O bound, and the memory cap keeps a
+    # leak or a burst of large requests from taking the host down. GOMEMLIMIT
+    # below tells the Go runtime to collect before the cap is hit.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+          pids: 512
+        reservations:
+          memory: 256m
+    security_opt:
+      - no-new-privileges:true
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-8080}
+      GOMEMLIMIT: ${GOMEMLIMIT:-768MiB}
+      LOG_FORMAT: ${LOG_FORMAT:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      OTEL_ENABLED: ${OTEL_ENABLED:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      OTEL_SAMPLING_RATE: ${OTEL_SAMPLING_RATE:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
@@ -151,6 +191,16 @@ services:
         NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
     container_name: prism-app
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768m
+          pids: 256
+        reservations:
+          memory: 128m
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"
     environment:
@@ -182,6 +232,16 @@ services:
         NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
     container_name: prism-app-green
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768m
+          pids: 256
+        reservations:
+          memory: 128m
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:${APP_GREEN_PORT:-3005}:3000"
     environment:
@@ -211,6 +271,16 @@ services:
       dockerfile: Dockerfile
     container_name: prism-web
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768m
+          pids: 256
+        reservations:
+          memory: 128m
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:${WEB_PORT:-3001}:3001"
     environment:
@@ -237,6 +307,16 @@ services:
       dockerfile: Dockerfile
     container_name: prism-web-green
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768m
+          pids: 256
+        reservations:
+          memory: 128m
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:${WEB_GREEN_PORT:-3006}:3001"
     environment:
@@ -260,6 +340,12 @@ services:
     image: postgres:15-alpine
     container_name: prism-postgres-database
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 256m
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-prism}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -281,6 +367,14 @@ services:
     image: redis:7-alpine
     container_name: prism-redis-cache
     restart: unless-stopped
+    # The container cap sits above --maxmemory so Redis's own overhead and
+    # replication buffers fit under it.
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+        reservations:
+          memory: 128m
     # Caps memory so Redis cannot take the host down. Nothing is evicted:
     # queued jobs and their state must not disappear, so at the cap writes
     # fail instead (see "Redis failure behaviour" in docs/INFRASTRUCTURE.md).

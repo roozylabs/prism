@@ -43,6 +43,11 @@ type Config struct {
 	// MaxRequestBodyBytes caps every request body. Chat requests with
 	// inline images are the largest legitimate bodies.
 	MaxRequestBodyBytes int64
+	// MetricsToken protects /metrics: when set, the scraper must send it as
+	// a bearer token; when empty the endpoint is served only in development.
+	MetricsToken string
+	// LogFormat is "json" (default outside development) or "text".
+	LogFormat string
 	// Retention is how many days the retention worker keeps rows of each
 	// growing table; 0 keeps them forever.
 	Retention RetentionDays
@@ -71,8 +76,13 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	var p envParser
+	appEnv := getEnvNonEmpty("APP_ENV", "production")
+	defaultLogFormat := "json"
+	if appEnv == "development" {
+		defaultLogFormat = "text"
+	}
 	cfg := &Config{
-		AppEnv:          getEnvNonEmpty("APP_ENV", "production"),
+		AppEnv:          appEnv,
 		ServerPort:      getEnv("SERVER_PORT", "8080"),
 		DatabaseURL:     getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/ai_gateway?sslmode=disable"),
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
@@ -89,6 +99,8 @@ func Load() (*Config, error) {
 		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
 		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
 		MaxRequestBodyBytes: int64(p.int("MAX_REQUEST_BODY_MB", 20)) << 20,
+		MetricsToken:        strings.TrimSpace(getEnv("METRICS_TOKEN", "")),
+		LogFormat:           strings.ToLower(strings.TrimSpace(getEnvNonEmpty("LOG_FORMAT", defaultLogFormat))),
 
 		// Prompt text (payloads, routing decisions' prompt_preview) is kept
 		// for the shortest time; request logs back billing and analytics.
@@ -103,6 +115,9 @@ func Load() (*Config, error) {
 			CostAnomalies:    p.int("RETENTION_COST_ANOMALIES_DAYS", 180),
 			BudgetAlerts:     p.int("RETENTION_BUDGET_ALERTS_DAYS", 180),
 		},
+	}
+	if cfg.LogFormat != "json" && cfg.LogFormat != "text" {
+		p.errs = append(p.errs, fmt.Errorf("LOG_FORMAT must be json or text, got %q", cfg.LogFormat))
 	}
 	if len(p.errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(p.errs...))

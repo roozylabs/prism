@@ -2,9 +2,12 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -20,19 +23,36 @@ import (
 
 type OTelShutdownFunc func(ctx context.Context) error
 
-// InitOTel initializes OpenTelemetry TracerProvider, MeterProvider, and W3C Propagator.
+var (
+	initOnce     sync.Once
+	initShutdown OTelShutdownFunc
+	initErr      error
+)
+
+// secondsBuckets are the histogram boundaries for the *_seconds instruments.
+// The SDK default (0, 5, 10, 25 ... 10000) is shaped for milliseconds and
+// would put every request in the first bucket.
+var secondsBuckets = []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60, 120}
+
+// InitOTel wires the metric and trace providers. The Prometheus exporter is
+// always installed, so /metrics serves the prism_* instruments whether or not
+// an OTLP collector exists; OTEL_ENABLED=true adds OTLP export for traces and
+// metrics. It runs once per process; later calls return the first result.
 func InitOTel(ctx context.Context) (OTelShutdownFunc, error) {
-	enabled := os.Getenv("OTEL_ENABLED")
-	if enabled != "true" && enabled != "1" {
-		fmt.Println("[OTel] OpenTelemetry exporter disabled (set OTEL_ENABLED=true to enable)")
-		return func(ctx context.Context) error { return nil }, nil
-	}
+	initOnce.Do(func() {
+		initShutdown, initErr = initOTel(ctx)
+	})
+	return initShutdown, initErr
+}
+
+func initOTel(ctx context.Context) (OTelShutdownFunc, error) {
+	enabledRaw := os.Getenv("OTEL_ENABLED")
+	otlpEnabled := enabledRaw == "true" || enabledRaw == "1"
 
 	serviceName := os.Getenv("OTEL_SERVICE_NAME")
 	if serviceName == "" {
 		serviceName = "prism-gateway"
 	}
-
 	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if otlpEndpoint == "" {
 		otlpEndpoint = "http://localhost:4318"
@@ -48,73 +68,83 @@ func InitOTel(ctx context.Context) (OTelShutdownFunc, error) {
 		return nil, fmt.Errorf("failed to create otel resource: %w", err)
 	}
 
-	// 1. OTLP Trace Exporter
-	traceExporter, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(otlpEndpoint+"/v1/traces"),
-		otlptracehttp.WithInsecure(),
-	)
+	// Metrics: the Prometheus exporter registers into the default registry
+	// that promhttp serves. WithoutUnits keeps prism_cost_usd_total from
+	// becoming prism_cost_usd_USD_total; WithoutScopeInfo keeps the series
+	// free of otel_scope_* labels.
+	promExporter, err := prometheus.New(prometheus.WithoutUnits(), prometheus.WithoutScopeInfo())
 	if err != nil {
-		fmt.Printf("[OTel Warning] Failed to initialize OTLP trace exporter: %v. Using fallback.\n", err)
+		return nil, fmt.Errorf("prometheus exporter: %w", err)
+	}
+	metricOpts := []sdkmetric.Option{
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(promExporter),
+		sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "prism_*_seconds", Kind: sdkmetric.InstrumentKindHistogram},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{Boundaries: secondsBuckets}},
+		)),
 	}
 
-	samplingRate := 1.0
-	if rateStr := os.Getenv("OTEL_SAMPLING_RATE"); rateStr != "" {
-		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
-			samplingRate = rate
-		}
-	}
+	var shutdowns []func(context.Context) error
 
-	var traceOpts []sdktrace.TracerProviderOption
-	traceOpts = append(traceOpts, sdktrace.WithResource(res), sdktrace.WithSampler(sdktrace.TraceIDRatioBased(samplingRate)))
-	if traceExporter != nil {
-		traceOpts = append(traceOpts, sdktrace.WithBatcher(traceExporter, sdktrace.WithBatchTimeout(2*time.Second)))
-	}
-
-	tp := sdktrace.NewTracerProvider(traceOpts...)
-	otel.SetTracerProvider(tp)
-
-	// 2. Setup W3C Propagator
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
 
-	// 3. Prometheus Metric Exporter
-	promExporter, err := prometheus.New()
-	if err != nil {
-		fmt.Printf("[OTel Warning] Failed to initialize Prometheus exporter: %v\n", err)
-	}
+	if otlpEnabled {
+		samplingRate := 1.0
+		if rateStr := os.Getenv("OTEL_SAMPLING_RATE"); rateStr != "" {
+			if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
+				samplingRate = rate
+			}
+		}
+		traceOpts := []sdktrace.TracerProviderOption{
+			sdktrace.WithResource(res),
+			sdktrace.WithSampler(sdktrace.TraceIDRatioBased(samplingRate)),
+		}
+		traceExporter, err := otlptracehttp.New(ctx,
+			otlptracehttp.WithEndpointURL(otlpEndpoint+"/v1/traces"),
+			otlptracehttp.WithInsecure(),
+		)
+		if err != nil {
+			log.Printf("otel: OTLP trace exporter not started: %v", err)
+		} else {
+			traceOpts = append(traceOpts, sdktrace.WithBatcher(traceExporter, sdktrace.WithBatchTimeout(2*time.Second)))
+		}
+		tp := sdktrace.NewTracerProvider(traceOpts...)
+		otel.SetTracerProvider(tp)
+		shutdowns = append(shutdowns, tp.Shutdown)
 
-	// 4. OTLP Metric Exporter
-	var metricOpts []sdkmetric.Option
-	metricOpts = append(metricOpts, sdkmetric.WithResource(res))
-	if promExporter != nil {
-		metricOpts = append(metricOpts, sdkmetric.WithReader(promExporter))
-	}
-
-	otlpMetricExporter, err := otlpmetrichttp.New(ctx,
-		otlpmetrichttp.WithEndpointURL(otlpEndpoint+"/v1/metrics"),
-		otlpmetrichttp.WithInsecure(),
-	)
-	if err == nil && otlpMetricExporter != nil {
-		metricOpts = append(metricOpts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(otlpMetricExporter, sdkmetric.WithInterval(5*time.Second))))
+		otlpMetricExporter, err := otlpmetrichttp.New(ctx,
+			otlpmetrichttp.WithEndpointURL(otlpEndpoint+"/v1/metrics"),
+			otlpmetrichttp.WithInsecure(),
+		)
+		if err != nil {
+			log.Printf("otel: OTLP metric exporter not started: %v", err)
+		} else {
+			metricOpts = append(metricOpts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(otlpMetricExporter, sdkmetric.WithInterval(5*time.Second))))
+		}
 	}
 
 	mp := sdkmetric.NewMeterProvider(metricOpts...)
 	otel.SetMeterProvider(mp)
+	shutdowns = append(shutdowns, mp.Shutdown)
 
-	fmt.Printf("[OTel] OpenTelemetry initialized successfully (Service: %s, Endpoint: %s)\n", serviceName, otlpEndpoint)
-
-	shutdown := func(shutdownCtx context.Context) error {
-		fmt.Println("[OTel] Shutting down OpenTelemetry providers...")
-		if err := tp.Shutdown(shutdownCtx); err != nil {
-			fmt.Printf("[OTel Error] Error shutting down TracerProvider: %v\n", err)
-		}
-		if err := mp.Shutdown(shutdownCtx); err != nil {
-			fmt.Printf("[OTel Error] Error shutting down MeterProvider: %v\n", err)
-		}
-		return nil
+	if otlpEnabled {
+		log.Printf("otel: metrics on /metrics, traces and metrics exported to %s (service %s)", otlpEndpoint, serviceName)
+	} else {
+		log.Printf("otel: metrics on /metrics; OTLP export off (set OTEL_ENABLED=true to export traces and metrics)")
 	}
 
+	shutdown := func(shutdownCtx context.Context) error {
+		var errs []error
+		for _, fn := range shutdowns {
+			if err := fn(shutdownCtx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
 	return shutdown, nil
 }

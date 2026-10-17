@@ -1,0 +1,80 @@
+# Alert rules on the metrics the gateway records today (see
+# docs/operations/monitoring.md for which instruments are live). Loaded by
+# prometheus.yml; route them to Alertmanager or Grafana alerting as you prefer.
+groups:
+  - name: prism-gateway
+    rules:
+      - alert: PrismApiDown
+        expr: up{job="prism-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prism API target {{ $labels.instance }} is not answering /metrics"
+          runbook: docs/operations/health-readiness.md
+
+      - alert: PrismHighErrorRate
+        expr: |
+          sum(rate(prism_request_errors_total[5m]))
+            / clamp_min(sum(rate(prism_requests_total[5m])), 0.001) > 0.05
+          and sum(rate(prism_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of gateway requests fail"
+          runbook: docs/operations/provider-outage.md
+
+      - alert: PrismSlowRequests
+        expr: histogram_quantile(0.95, sum by (le) (rate(prism_request_duration_seconds_bucket[5m]))) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 request latency above 30s for 10 minutes"
+
+      - alert: PrismSlowFirstToken
+        expr: histogram_quantile(0.95, sum by (le) (rate(prism_ttft_seconds_bucket[5m]))) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 time to first token above 10s for 10 minutes"
+
+  - name: prism-credentials
+    rules:
+      - alert: PrismCredentialCooldowns
+        expr: sum by (provider) (increase(prism_credential_cooldowns_total[10m])) > 5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Credentials for {{ $labels.provider }} keep being rate limited"
+          runbook: docs/operations/credential-outage.md
+
+      - alert: PrismCredentialExhausted
+        expr: sum by (provider) (increase(prism_credential_exhaustions_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A {{ $labels.provider }} credential ran out of quota"
+          runbook: docs/operations/credential-outage.md
+
+      - alert: PrismCredentialInvalid
+        expr: sum by (provider) (increase(prism_credential_failures_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A {{ $labels.provider }} credential was rejected as invalid"
+          runbook: docs/operations/credential-outage.md
+
+      - alert: PrismCredentialUnhealthy
+        expr: prism_credential_health_score < 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Credential {{ $labels.credential_id }} ({{ $labels.provider }}) health below 50"
+          runbook: docs/operations/credential-outage.md

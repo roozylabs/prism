@@ -5,6 +5,19 @@ All notable changes to the **RoozyLabs Prism** project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Metrics without a collector**: the Prometheus exporter is always installed, so `/metrics` serves the `prism_*` instruments (requests, errors, latency, tokens, cost, TTFT, credential health and cooldowns) without `OTEL_ENABLED`; `OTEL_ENABLED=true` still adds OTLP export. Second-scale histograms use buckets from 0.05 s to 120 s instead of the millisecond-shaped defaults, and `prism_cost_usd_total` keeps its name.
+- **`METRICS_TOKEN`**: `/metrics` requires `Authorization: Bearer <token>` and answers `404` without a token outside development, since nginx proxies every path.
+- **Correlation ids**: `CorrelationMiddleware` is installed on the router; the gateway handler, the async path and error payloads use its sanitised `request_id` instead of a fresh UUID or the raw header (the error payload read a wrong key before and never carried it).
+- **JSON logs**: all log output goes through `log/slog` (`LOG_FORMAT=json`, `text` in development); the access log is one record per request with `request_id`, `execution_id`, method, redacted path, status, `latency_ms`, client ip, user agent and bytes. Successful health probes are not logged.
+- **Alert rules**: `deploy/otel/prism-alerts.yml` (API down, error rate, p95 latency and TTFT, credential cooldowns/exhaustion/invalid, health score) on metrics that are recorded; Prometheus in `deploy/otel` joins the gateway's compose network and scrapes both colours with the token.
+
+### Changed
+- **Containers**: the API image is built with the pinned Go version, `-trimpath -ldflags="-s -w"`, on Alpine 3.22, and runs as an unprivileged user; the landing page image runs as `node`. `docker-compose.yml` sets CPU and memory limits, `pids_limit` and `no-new-privileges` on every service and `GOMEMLIMIT=768MiB` on the API.
+- **CI**: every GitHub Action is pinned to a commit SHA (Dependabot keeps them current), the API test job fails below `COVERAGE_MIN` and uploads the coverage profile, and the dashboard job typechecks before building.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added

@@ -9,11 +9,11 @@
 
 ## Executive Summary
 
-Full end-to-end observability, standardized correlation model, structured JSON logging with automatic secret redaction, full OpenTelemetry metrics with low-cardinality label enforcement, and 8-stage OpenTelemetry tracing spans were implemented in **RoozyLabs Prism** (`apps/api`).
+> **Status (16 Oct 2026, audit finding O12):** the correlation middleware is installed on the router, every log line is a JSON record, the access log carries `request_id`, and `/metrics` serves the `prism_*` instruments without an OTLP collector (behind `METRICS_TOKEN`). Tracing spans and the admission/routing/provider instruments listed below are defined in code but **not emitted** by any request path; treat sections 4 and 5 as the intended catalog, and [operations/monitoring.md](./operations/monitoring.md) as the list of what is live.
 
-An operator can now answer **"What happened to this AI request?"** by starting from a single `X-Request-ID` or `execution_id` and querying standard JSON logs, Prometheus metric counters, database audit trails, or OpenTelemetry traces.
+Standardized correlation ids, structured JSON logging with query redaction, and the Prometheus metrics that the gateway records are implemented in **RoozyLabs Prism** (`apps/api`).
 
-All observability regression tests passed **100% with zero data races (`go test -race ./internal/...`)**.
+An operator can answer **"What happened to this AI request?"** by starting from a single `X-Request-ID` and grepping the JSON access log, reading the `request_id` of an error payload, and querying the database audit trail.
 
 ---
 
@@ -66,7 +66,7 @@ Every request propagates correlation IDs through 10 architectural stages:
 
 ## 3. Structured JSON Logging Schema & Secret Redaction
 
-All log output uses structured JSON with mandatory secret redaction via `utils.RedactSensitive`:
+All log output is JSON through `log/slog` (`LOG_FORMAT=json`, the default outside development): the standard `log` package is routed through the same handler, so every line has `time`, `level`, `msg` and `service`. The access log (`internal/middleware/logger.go`) writes one record per request with `request_id`, `execution_id`, `method`, `path` (sensitive query values replaced by `REDACTED`), `status`, `latency_ms`, `client_ip`, `user_agent` and `bytes`. The richer per-attempt schema below is produced by `utils.LogStructured`, which applies `utils.RedactSensitive`; it is available to handlers but not emitted on the request path today:
 
 ```json
 {
@@ -109,6 +109,8 @@ All Prometheus metrics enforce **Low-Cardinality Label Rules** to prevent Promet
 
 ### Metric Catalog
 
+Served at `/metrics` behind `METRICS_TOKEN`. Recorded today: `prism_requests_total`, `prism_request_errors_total`, `prism_request_duration_seconds`, `prism_token_usage_total`, `prism_cost_usd_total`, `prism_ttft_seconds`, `prism_credential_health_score` and the three `prism_credential_*_total` counters. The admission, routing, `prism_provider_*` and `prism_active_requests` instruments are declared but nothing records them yet. Second-scale histograms use buckets from 0.05 s to 120 s.
+
 | Metric Instrument Name | Type | Description | Labels |
 |------------------------|------|-------------|--------|
 | `prism_requests_total` | Counter | Total requests handled | `provider`, `model`, `status`, `org_id` |
@@ -133,7 +135,7 @@ All Prometheus metrics enforce **Low-Cardinality Label Rules** to prevent Promet
 
 ## 5. OpenTelemetry Tracing Hierarchy (8 Stages)
 
-OpenTelemetry trace context (`traceparent`) is propagated across all stages:
+Intended span hierarchy. The W3C `traceparent` propagator is installed and `OTEL_ENABLED=true` starts the tracer provider, but no middleware or engine stage creates spans yet, so Tempo stays empty until that work lands:
 
 ```text
 gateway.request
@@ -163,7 +165,7 @@ Starting from a single `X-Request-ID` (e.g. `req-xyz-123`):
    ```sql
    SELECT * FROM ai_audit_trails WHERE request_id = 'req-xyz-123';
    ```
-5. **View OpenTelemetry Trace**: Search Grafana Tempo / Jaeger by `trace_id` or `request_id`.
+5. **Error payloads** carry the same id in `error.request_id`, so a client-side report can be matched to the access log without the header.
 
 ---
 
