@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/roozylabs/prism/internal/utils"
@@ -43,6 +44,10 @@ type Config struct {
 	// MaxRequestBodyBytes caps every request body. Chat requests with
 	// inline images are the largest legitimate bodies.
 	MaxRequestBodyBytes int64
+	// DBStatementTimeout bounds every statement on the API's connection
+	// pool, so one slow query cannot hold a connection indefinitely.
+	// Migrations run on their own connection and are not bound by it.
+	DBStatementTimeout time.Duration
 	// Retention is how many days the retention worker keeps rows of each
 	// growing table; 0 keeps them forever.
 	Retention RetentionDays
@@ -89,6 +94,7 @@ func Load() (*Config, error) {
 		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
 		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
 		MaxRequestBodyBytes: int64(p.int("MAX_REQUEST_BODY_MB", 20)) << 20,
+		DBStatementTimeout:  time.Duration(p.int("DB_STATEMENT_TIMEOUT_MS", 30000)) * time.Millisecond,
 
 		// Prompt text (payloads, routing decisions' prompt_preview) is kept
 		// for the shortest time; request logs back billing and analytics.
