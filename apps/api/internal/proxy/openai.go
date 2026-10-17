@@ -137,6 +137,11 @@ func (a *OpenAIAdapter) ParseStreamChunk(line []byte) (*ProviderResponse, bool) 
 			CompletionTokens int `json:"completion_tokens"`
 			TotalTokens      int `json:"total_tokens"`
 		} `json:"usage"`
+		Error *struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		} `json:"error"`
 	}
 
 	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
@@ -146,6 +151,17 @@ func (a *OpenAIAdapter) ParseStreamChunk(line []byte) (*ProviderResponse, bool) 
 	resp := &ProviderResponse{
 		ID:    chunk.ID,
 		Model: chunk.Model,
+	}
+
+	// An error object in the stream means the provider gave up on the
+	// request; the engine decides whether to fail over or tell the client.
+	if chunk.Error != nil && (chunk.Error.Message != "" || chunk.Error.Type != "") {
+		msg := chunk.Error.Message
+		if msg == "" {
+			msg = "upstream reported an error"
+		}
+		resp.Error = &ProviderError{Type: chunk.Error.Type, Message: msg, Code: chunk.Error.Code}
+		return resp, false
 	}
 
 	for _, c := range chunk.Choices {

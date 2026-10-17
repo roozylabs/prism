@@ -163,7 +163,9 @@ func (o *ExecutionOrchestrator) ExecuteChatCompletions(
 		log.ClientApp = clientApp
 		log.IsStream = req.Stream
 
-		if log.CostUSD == 0 && o.pricingRepo != nil {
+		// The route's model row may carry no price; the pricing table knows
+		// free models from unpriced ones.
+		if log.CostUSD == 0 && log.TotalTokens > 0 && o.pricingRepo != nil {
 			log.CostUSD = o.pricingRepo.CalculateCost(log.Model, log.ProviderType, log.InputTokens, log.OutputTokens)
 		}
 

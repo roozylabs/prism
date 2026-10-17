@@ -314,14 +314,18 @@ func (h *GatewayHandler) publishEvents(c *gin.Context, requestID string, log *mo
 
 func (h *GatewayHandler) handleProxyError(c *gin.Context, err error, key *models.GatewayAPIKey, req *proxy.ProxyRequest, requestID, clientIP, userAgent, clientApp string, isStream bool) {
 	status, errType, errCode, cleanMsg := utils.CleanUpstreamError(err)
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"message": cleanMsg,
-			"type":    errType,
-			"code":    errCode,
-			"param":   nil,
-		},
-	})
+	// A stream that already sent keepalives or chunks has reported the
+	// failure as an event; a JSON body would only corrupt it.
+	if !c.Writer.Written() {
+		c.JSON(status, gin.H{
+			"error": gin.H{
+				"message": cleanMsg,
+				"type":    errType,
+				"code":    errCode,
+				"param":   nil,
+			},
+		})
+	}
 
 	if key != nil && h.requestLogs != nil {
 		modelName := ""
