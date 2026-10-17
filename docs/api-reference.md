@@ -55,6 +55,17 @@ OpenAI-compatible chat completion endpoint supporting `prism-auto` dynamic routi
 }
 ```
 
+#### Streaming
+With `"stream": true` the response is `text/event-stream`. While the model is thinking the gateway sends `: ping` comment lines every 15 seconds; SSE clients ignore them. Usage chunks (`"choices": []` with `usage`) may arrive before and after the content, as the provider reports them. If the provider fails after content was sent, the stream ends with an error event and `[DONE]`:
+
+```
+data: {"error":{"message":"Overloaded","type":"stream_error","code":"overloaded_error","partial":true}}
+
+data: [DONE]
+```
+
+A failure before any output is answered as a normal JSON error with its own status code, so a client can retry it like a non-streaming request.
+
 ### `GET /v1/models`
 List available models in OpenAI-compatible format.
 

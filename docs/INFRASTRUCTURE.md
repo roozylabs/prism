@@ -284,6 +284,10 @@ With Redis available, the gateway rate limit is a sliding one-minute window per 
 
 Gateway key lookups are cached in memory for 10 seconds per instance. Deleting a key drops it from the cache of the instance that handled the delete at once; during a blue/green overlap the other instance keeps accepting the key for at most 10 seconds. Unknown keys are remembered for 5 seconds so a flood of invalid keys does not reach the database.
 
+### Streaming timeouts and keepalive
+
+A streaming attempt to a provider is bounded by a 30-minute deadline and a 5-minute idle timeout (no byte from upstream), not by the 15-minute timeout that applies to non-streaming calls. While nothing else is being sent, the gateway writes a `: ping` comment to the client every 15 seconds, including while it waits for the provider's response headers, so a proxy or load balancer with an idle timeout (nginx `proxy_read_timeout`, cloud load balancers at 60 s) does not cut a long reasoning pause. Nothing in nginx needs to change for this; keep `proxy_buffering off` for `/v1/`.
+
 ### 4.2 Generate Secure Secrets
 
 ```bash

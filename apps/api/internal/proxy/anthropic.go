@@ -163,9 +163,25 @@ func (a *AnthropicAdapter) ParseStreamChunk(line []byte) (*ProviderResponse, boo
 	}
 	data := strings.TrimSpace(strings.TrimPrefix(lineStr, "data:"))
 
+	// Anthropic puts the input count under message_start's "message", the
+	// output count under message_delta's top-level "usage" (cumulative), and
+	// failures in an "error" event.
 	var event struct {
-		Type  string          `json:"type"`
-		Delta json.RawMessage `json:"delta"`
+		Type    string          `json:"type"`
+		Delta   json.RawMessage `json:"delta"`
+		Message struct {
+			Usage struct {
+				InputTokens int `json:"input_tokens"`
+			} `json:"usage"`
+		} `json:"message"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
 	if err := json.Unmarshal([]byte(data), &event); err != nil {
@@ -174,14 +190,17 @@ func (a *AnthropicAdapter) ParseStreamChunk(line []byte) (*ProviderResponse, boo
 
 	switch event.Type {
 	case "message_start":
-		var msg struct {
-			Usage struct {
-				InputTokens int `json:"input_tokens"`
-			} `json:"usage"`
-		}
-		_ = json.Unmarshal(event.Delta, &msg)
 		return &ProviderResponse{
-			Usage: Usage{PromptTokens: msg.Usage.InputTokens},
+			Usage: Usage{PromptTokens: event.Message.Usage.InputTokens},
+		}, false
+
+	case "error":
+		msg := event.Error.Message
+		if msg == "" {
+			msg = "upstream reported an error"
+		}
+		return &ProviderResponse{
+			Error: &ProviderError{Type: event.Error.Type, Message: msg},
 		}, false
 
 	case "content_block_delta":
@@ -203,9 +222,6 @@ func (a *AnthropicAdapter) ParseStreamChunk(line []byte) (*ProviderResponse, boo
 	case "message_delta":
 		var delta struct {
 			StopReason string `json:"stop_reason"`
-			Usage      struct {
-				OutputTokens int `json:"output_tokens"`
-			} `json:"usage"`
 		}
 		_ = json.Unmarshal(event.Delta, &delta)
 		return &ProviderResponse{
@@ -213,7 +229,7 @@ func (a *AnthropicAdapter) ParseStreamChunk(line []byte) (*ProviderResponse, boo
 				Index:        0,
 				FinishReason: mapAnthropicStopReasonToOpenAI(delta.StopReason),
 			}},
-			Usage: Usage{CompletionTokens: delta.Usage.OutputTokens},
+			Usage: Usage{PromptTokens: event.Usage.InputTokens, CompletionTokens: event.Usage.OutputTokens},
 		}, false
 
 	case "message_stop":

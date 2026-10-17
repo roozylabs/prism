@@ -53,6 +53,12 @@ type Engine struct {
 	maxRetries     int
 	cooldownSecs   int
 	client         *http.Client
+	// streamClient has no overall timeout: a streaming attempt is bounded
+	// by streamAttemptTimeout and streamIdleTimeout instead.
+	streamClient         *http.Client
+	streamKeepalive      time.Duration
+	streamIdleTimeout    time.Duration
+	streamAttemptTimeout time.Duration
 }
 
 func (e *Engine) SetMCPRepositories(invocations *repository.MCPInvocationRepository, servers *repository.MCPServerRepository) {
@@ -123,6 +129,11 @@ func NewEngine(router *Router, creds *repository.CredentialRepository, cooldown 
 		maxRetries:   maxRetries,
 		cooldownSecs: cooldownSecs,
 		client:       &http.Client{Transport: tr, Timeout: 15 * time.Minute},
+
+		streamClient:         &http.Client{Transport: tr},
+		streamKeepalive:      defaultStreamKeepalive,
+		streamIdleTimeout:    defaultStreamIdleTimeout,
+		streamAttemptTimeout: defaultStreamAttemptTimeout,
 	}
 }
 
@@ -776,6 +787,17 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 	var attempts []AttemptRecord
 	var lastAttemptStatus int
 
+	sse := newSSEStream(c, e.streamKeepalive)
+	// Once a keepalive or a chunk has gone out, the response is an event
+	// stream and a final failure must be reported inside it.
+	failStream := func(err error) (*models.RequestLog, error) {
+		if sse.Started() {
+			_, errType, code, msg := utils.CleanUpstreamError(err)
+			sse.writeError(nil, errType, code, msg, false)
+		}
+		return nil, err
+	}
+
 	upstreamCalls := 0
 	for i, route := range routes {
 		if ctx.Err() != nil {
@@ -851,10 +873,22 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			lastErr = fmt.Errorf("concurrency limit wait: %w", err)
 			continue
 		}
+		// The attempt has its own deadline, ended with the provider slot.
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, e.streamAttemptTimeout)
+		httpReq = httpReq.WithContext(attemptCtx)
+		releaseSlot := release
+		release = func() {
+			cancelAttempt()
+			releaseSlot()
+		}
 
 		attemptStart := time.Now()
 		upstreamCalls++
-		httpResp, err := e.client.Do(httpReq)
+		// Reasoning models can take minutes before the first byte; keep the
+		// client's connection alive meanwhile.
+		stopHeaderPings := sse.pingWhileWaiting(route)
+		httpResp, err := e.streamClient.Do(httpReq)
+		stopHeaderPings()
 		if err != nil {
 			release()
 			if ctx.Err() != nil {
@@ -967,7 +1001,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				sleepCtx(ctx, calculateBackoff(i))
 				continue
 			}
-			return nil, lastErr
+			return failStream(lastErr)
 		}
 
 		// Success → start streaming & reset 50x error count
@@ -985,16 +1019,6 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		})
 		defer endAttempt()
 
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache, no-transform")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
-		c.Header("X-Prism-Model", route.Model.Slug)
-		c.Header("X-Prism-Provider", route.Provider.Type)
-		c.Header("X-Roozy-Model", route.Model.Slug)
-		c.Header("X-Roozy-Provider", route.Provider.Type)
-		c.Status(http.StatusOK)
-
 		var totalTokens Usage
 		var outputCharCount int
 		hasher := sha256.New()
@@ -1003,8 +1027,48 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		scanner.Buffer(make([]byte, 0, 64*1024), 20*1024*1024)
 		streamToolAcc := NewStreamToolAccumulator()
 		forwardedAny := false
-		for scanner.Scan() {
-			line := scanner.Bytes()
+
+		// Upstream lines arrive on a channel so the loop can also send
+		// keepalives and notice an upstream that went silent.
+		lines := make(chan []byte)
+		readErr := make(chan error, 1)
+		stopReader := make(chan struct{})
+		go func() {
+			defer close(lines)
+			for scanner.Scan() {
+				line := append([]byte(nil), scanner.Bytes()...)
+				select {
+				case lines <- line:
+				case <-stopReader:
+					return
+				}
+			}
+			readErr <- scanner.Err()
+		}()
+
+		keepalive := time.NewTimer(e.streamKeepalive)
+		idle := time.NewTimer(e.streamIdleTimeout)
+		var upstreamErrEvent *ProviderError
+		idleTimedOut := false
+	readLoop:
+		for {
+			var line []byte
+			select {
+			case l, ok := <-lines:
+				if !ok {
+					break readLoop
+				}
+				line = l
+				resetTimer(keepalive, e.streamKeepalive)
+				resetTimer(idle, e.streamIdleTimeout)
+			case <-keepalive.C:
+				sse.ping(route)
+				keepalive.Reset(e.streamKeepalive)
+				continue
+			case <-idle.C:
+				idleTimedOut = true
+				break readLoop
+			}
 			if len(line) == 0 {
 				continue
 			}
@@ -1015,6 +1079,10 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			}
 			if chunk == nil {
 				continue
+			}
+			if chunk.Error != nil {
+				upstreamErrEvent = chunk.Error
+				break
 			}
 
 			// Capture TTFT on first non-empty content or reasoning token
@@ -1037,8 +1105,17 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				}
 			}
 
+			// Providers report usage in pieces: Anthropic sends the input
+			// count first and the output count last, OpenAI one final
+			// chunk. Keep whatever each chunk knows.
+			if chunk.Usage.PromptTokens > 0 {
+				totalTokens.PromptTokens = chunk.Usage.PromptTokens
+			}
+			if chunk.Usage.CompletionTokens > 0 {
+				totalTokens.CompletionTokens = chunk.Usage.CompletionTokens
+			}
 			if chunk.Usage.TotalTokens > 0 {
-				totalTokens = chunk.Usage
+				totalTokens.TotalTokens = chunk.Usage.TotalTokens
 			}
 
 			for _, ch := range chunk.Choices {
@@ -1064,6 +1141,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				}
 			}
 
+			sse.start(route)
 			jsonChunk, _ := json.Marshal(chunk)
 			_, _ = mw.Write([]byte("data: "))
 			_, _ = mw.Write(jsonChunk)
@@ -1073,31 +1151,62 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 				forwardedAny = true
 			}
 		}
+		keepalive.Stop()
+		idle.Stop()
+		close(stopReader)
+		var scanErr error
+		select {
+		case scanErr = <-readErr:
+		default:
+		}
 
 		streamInterrupted := false
-		if err := scanner.Err(); err != nil && ctx.Err() != nil {
+		if scanErr != nil && ctx.Err() != nil {
 			// The client disconnected; the upstream read was canceled with it.
 			if !forwardedAny {
 				return nil, ErrClientCanceled
 			}
-			log.Printf("client disconnected mid-stream: %v", err)
-		} else if err != nil {
-			if !forwardedAny {
-				log.Printf("stream pre-token error, retrying next route: %v", err)
-				lastErr = fmt.Errorf("stream interrupted before first token: %w", err)
+			log.Printf("client disconnected mid-stream: %v", scanErr)
+		} else {
+			var attemptErr error
+			switch {
+			case upstreamErrEvent != nil:
+				attemptErr = fmt.Errorf("upstream stream error: %s", upstreamErrEvent.Message)
+			case idleTimedOut:
+				attemptErr = fmt.Errorf("upstream idle timeout: no data for %s", e.streamIdleTimeout)
+			case scanErr != nil:
+				attemptErr = scanErr
+			case !forwardedAny:
+				attemptErr = errors.New("upstream closed the stream without any data")
+			}
+			if attemptErr != nil && !forwardedAny {
+				// Nothing reached the client yet: another route can serve it.
+				log.Printf("stream pre-token error, retrying next route: %v", attemptErr)
+				lastErr = fmt.Errorf("stream interrupted before first token: %w", attemptErr)
+				attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
 				e.recordModelFailure(route.Model.Slug, attemptStart)
 				endAttempt()
 				sleepCtx(ctx, calculateBackoff(i))
 				continue
 			}
-			log.Printf("stream interrupted mid-response: %v", err)
-			streamInterrupted = true
-			c.Set("_stream_interrupted", true)
-			_, _ = c.Writer.Write([]byte("data: {\"error\":{\"message\":\"stream interrupted upstream\",\"type\":\"stream_error\",\"partial\":true}}\n\n"))
+			if attemptErr != nil {
+				log.Printf("stream interrupted mid-response: %v", attemptErr)
+				streamInterrupted = true
+				c.Set("_stream_interrupted", true)
+				code := ""
+				msg := "stream interrupted upstream"
+				if upstreamErrEvent != nil {
+					code = upstreamErrEvent.Type
+					msg = upstreamErrEvent.Message
+				}
+				sse.writeError(route, "stream_error", code, msg, true)
+			}
 		}
 
-		_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
-		c.Writer.Flush()
+		if !streamInterrupted {
+			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			c.Writer.Flush()
+		}
 
 		if e.toolCalls != nil || e.mcpInvocations != nil {
 			if recs := streamToolAcc.Finish(); len(recs) > 0 {
@@ -1116,18 +1225,17 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		respHash := hex.EncodeToString(hasher.Sum(nil))
 		respBytes := outputCharCount
 
-		if totalTokens.TotalTokens == 0 {
-			estInput := estimatePromptTokens(req)
-			estOutput := (outputCharCount + 3) / 4
-			if estOutput < 1 && outputCharCount > 0 {
-				estOutput = 1
-			}
-			totalTokens = Usage{
-				PromptTokens:     estInput,
-				CompletionTokens: estOutput,
-				TotalTokens:      estInput + estOutput,
+		// Estimate only what upstream did not report.
+		if totalTokens.PromptTokens == 0 {
+			totalTokens.PromptTokens = estimatePromptTokens(req)
+		}
+		if totalTokens.CompletionTokens == 0 && outputCharCount > 0 {
+			totalTokens.CompletionTokens = (outputCharCount + 3) / 4
+			if totalTokens.CompletionTokens < 1 {
+				totalTokens.CompletionTokens = 1
 			}
 		}
+		totalTokens.TotalTokens = totalTokens.PromptTokens + totalTokens.CompletionTokens
 
 		latency := int(time.Since(start).Milliseconds())
 
@@ -1188,7 +1296,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		})
 	}
 
-	return nil, fmt.Errorf("all credentials exhausted after %d retries: %w", retryCount, lastErr)
+	return failStream(fmt.Errorf("all credentials exhausted after %d retries: %w", retryCount, lastErr))
 }
 
 // recordModelFailure feeds a failed upstream attempt (network error, 5xx or
