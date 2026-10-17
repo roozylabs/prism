@@ -14,7 +14,8 @@ const buttonVariants = cva(
         secondary: 'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
-        prismViolet: 'bg-[#8B5CF6] text-white shadow hover:bg-[#7C3AED]',
+        // Alias of `default`, kept for existing call sites. Violet is the brand hue, not the action hue.
+        prismViolet: 'bg-primary text-primary-foreground shadow hover:bg-primary/90',
       },
       size: {
         default: 'h-9 px-4 py-2',
