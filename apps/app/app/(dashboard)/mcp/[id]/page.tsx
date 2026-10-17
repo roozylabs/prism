@@ -405,7 +405,7 @@ export default function MCPServerDetailPage() {
                       className="flex items-center justify-between rounded border border-border bg-muted/40 p-3"
                     >
                       <div className="flex items-center gap-2.5">
-                        <Bot className="h-4 w-4 text-[#8B5CF6]" />
+                        <Bot className="h-4 w-4 text-muted-foreground" />
                         <div>
                           <p className="text-sm font-medium text-foreground">{a.displayName || a.name}</p>
                           <p className="font-mono text-[11px] text-muted-foreground">{a.name}</p>
@@ -452,14 +452,14 @@ export default function MCPServerDetailPage() {
                   disabled={isSyncingThis}
                 >
                   {isSyncingThis ? (
-                    <Loader2 className="h-3 w-3 animate-spin text-[#8B5CF6]" />
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                   ) : (
                     <RefreshCw className="h-3 w-3" />
                   )}
                   <span>Sync</span>
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setTestModalOpen(true)}>
-                  <Play className="h-3 w-3 text-[#8B5CF6]" />
+                  <Play className="h-3 w-3 text-muted-foreground" />
                   <span>Test Tool</span>
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={openEdit}>

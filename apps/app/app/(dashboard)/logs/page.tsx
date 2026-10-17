@@ -113,7 +113,7 @@ export default function LogsPage() {
       key: 'actions',
       render: (_, record) => (
         <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => openLogInspector(record)}>
-          <Eye className="h-3.5 w-3.5 text-[#8B5CF6]" /> Details
+          <Eye className="h-3.5 w-3.5 text-muted-foreground" /> Details
         </Button>
       ),
     },
@@ -129,7 +129,7 @@ export default function LogsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Activity className="h-4 w-4 text-[#8B5CF6]" />
+            <Activity className="h-4 w-4 text-muted-foreground" />
             <span>Proxy Request Stream</span>
           </CardTitle>
         </CardHeader>
@@ -164,7 +164,7 @@ export default function LogsPage() {
         <SheetContent className="sm:max-w-lg overflow-y-auto">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
-              <Server className="h-4 w-4 text-[#8B5CF6]" />
+              <Server className="h-4 w-4 text-muted-foreground" />
               <span>Deep Request Trace & Diagnostics</span>
             </SheetTitle>
             <SheetDescription className="font-mono text-xs text-muted-foreground flex items-center justify-between">
@@ -289,7 +289,7 @@ export default function LogsPage() {
 
               <div className="space-y-2">
                 <span className="font-semibold text-foreground flex items-center gap-1.5">
-                  <RefreshCw className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                  <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>Failover Retries</span>
                 </span>
                 <div className="p-3 rounded-md border border-border bg-muted/40 font-mono text-[11px]">

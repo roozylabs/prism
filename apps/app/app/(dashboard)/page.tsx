@@ -127,7 +127,7 @@ export default function DashboardPage() {
       dataIndex: 'route',
       key: 'route',
       render: (route) => (
-        <span className="font-mono text-[#8B5CF6] font-semibold text-xs truncate max-w-[140px] block">{String(route ?? '')}</span>
+        <span className="font-mono text-muted-foreground font-semibold text-xs truncate max-w-[140px] block">{String(route ?? '')}</span>
       ),
     },
     {
@@ -211,7 +211,7 @@ export default function DashboardPage() {
           title={`Total Requests (${currentRangeLabel})`}
           value={stats?.totalRequests ? stats.totalRequests.toLocaleString() : (stats?.totalRequests === 0 ? '0' : '-')}
           subtitle={`selected ${currentRangeLabel} period`}
-          icon={<Activity className="h-4 w-4 text-[#8B5CF6]" />}
+          icon={<Activity className="h-4 w-4 text-muted-foreground" />}
           loading={isLoading}
         />
         <MetricCard
@@ -257,7 +257,7 @@ export default function DashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Server className="h-4 w-4 text-[#8B5CF6]" />
+                <Server className="h-4 w-4 text-muted-foreground" />
                 <span>Provider Availability</span>
               </CardTitle>
             </div>
@@ -287,7 +287,7 @@ export default function DashboardPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Activity className="h-4 w-4 text-[#8B5CF6]" />
+              <Activity className="h-4 w-4 text-muted-foreground" />
               <span>Recent AI Gateway Activity Logs</span>
             </CardTitle>
           </div>

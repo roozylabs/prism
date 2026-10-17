@@ -85,7 +85,7 @@ export default function AuditTrailPage() {
       title: 'Request ID',
       dataIndex: 'requestId',
       key: 'requestId',
-      render: (val) => <span className="font-mono text-xs text-[#7C3AED] truncate max-w-[120px] block">{String(val)}</span>,
+      render: (val) => <span className="font-mono text-xs text-foreground truncate max-w-[120px] block">{String(val)}</span>,
     },
     {
       title: 'User / Role',
@@ -134,7 +134,7 @@ export default function AuditTrailPage() {
           disabled={verifyMutation.isPending}
           onClick={() => handleVerify(record.id)}
         >
-          <ShieldCheck className="h-3.5 w-3.5 text-[#8B5CF6]" />
+          <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
           Verify Hash
         </Button>
       ),
@@ -213,7 +213,7 @@ export default function AuditTrailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-[#8B5CF6]" />
+                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
                 <span>End-to-End Signed AI Request Audit Ledger</span>
               </CardTitle>
             </CardHeader>
@@ -248,7 +248,7 @@ export default function AuditTrailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <ScrollText className="h-4 w-4 text-[#8B5CF6]" />
+                <ScrollText className="h-4 w-4 text-muted-foreground" />
                 <span>System Administration Action Logs</span>
               </CardTitle>
             </CardHeader>

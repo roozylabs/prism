@@ -340,7 +340,7 @@ export default function AgentDetailPage() {
             </Button>
             <Button variant="outline" size="sm" asChild>
               <Link href={`${AppRoutes.SANDBOX}?agent=${agent.name}`}>
-                <Play className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                <Play className="h-3.5 w-3.5 text-muted-foreground" />
                 <span>Open in Sandbox</span>
               </Link>
             </Button>
@@ -355,7 +355,7 @@ export default function AgentDetailPage() {
       {/* Badges Metadata Bar */}
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <Badge variant="outline" className="font-mono text-[10px] uppercase">
-          <Bot className="mr-1 h-3 w-3 text-[#8B5CF6]" />
+          <Bot className="mr-1 h-3 w-3 text-muted-foreground" />
           {agent.agentType || "assistant"}
         </Badge>
         <StatusDot status={agent.enabled ? "healthy" : "cooldown"} />
@@ -411,7 +411,7 @@ export default function AgentDetailPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Terminal className="h-4 w-4 text-[#8B5CF6]" />
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
                   <span>Bound System Prompt & Persona</span>
                 </CardTitle>
                 <CardDescription>
@@ -456,7 +456,7 @@ export default function AgentDetailPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Layers className="h-4 w-4 text-[#8B5CF6]" />
+              <Layers className="h-4 w-4 text-muted-foreground" />
               <span>Allowed LLM Models</span>
             </CardTitle>
             <CardDescription>
@@ -468,7 +468,7 @@ export default function AgentDetailPage() {
               <div className="flex flex-wrap gap-2">
                 {(agent.allowedModels || []).map((m: string) => (
                   <Badge key={m} variant="outline" className="font-mono text-xs py-1 px-2.5 gap-1.5">
-                    <Cpu className="h-3 w-3 text-[#8B5CF6]" />
+                    <Cpu className="h-3 w-3 text-muted-foreground" />
                     <span>{m}</span>
                   </Badge>
                 ))}
@@ -488,7 +488,7 @@ export default function AgentDetailPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-[#8B5CF6]" />
+              <Cpu className="h-4 w-4 text-muted-foreground" />
               <span>Allowed MCP Servers ({(agent.allowedMcpServers || []).length})</span>
             </CardTitle>
             <CardDescription>Model Context Protocol servers bound to this agent.</CardDescription>
@@ -504,7 +504,7 @@ export default function AgentDetailPage() {
                       className="flex items-center justify-between rounded-none border border-border bg-muted/40 p-2.5 text-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <Cpu className="h-3.5 w-3.5 text-[#8B5CF6] shrink-0" />
+                        <Cpu className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <span className="font-mono font-medium truncate">{srv?.displayName || sName}</span>
                       </div>
                       {srv ? (
@@ -533,7 +533,7 @@ export default function AgentDetailPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-[#8B5CF6]" />
+              <Wrench className="h-4 w-4 text-muted-foreground" />
               <span>Allowed Tools ({(agent.allowedTools || []).length})</span>
             </CardTitle>
             <CardDescription>Native Tool Gateway functions permitted.</CardDescription>
@@ -557,7 +557,7 @@ export default function AgentDetailPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Code2 className="h-4 w-4 text-[#8B5CF6]" />
+              <Code2 className="h-4 w-4 text-muted-foreground" />
               <span>Allowed Resources ({(agent.allowedResources || []).length})</span>
             </CardTitle>
             <CardDescription>Resource Gateway documents and datasets accessible.</CardDescription>
@@ -585,7 +585,7 @@ export default function AgentDetailPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-[#8B5CF6]" />
+                  <Zap className="h-4 w-4 text-muted-foreground" />
                   <span>Recent Agent Executions</span>
                 </CardTitle>
                 <CardDescription>Recent proxy requests made under this agent identity boundary.</CardDescription>

@@ -101,15 +101,15 @@ export default function AgentsPage() {
       ) : (
         <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
           {agents.map((agent) => (
-            <Card key={agent.id} className="flex flex-col justify-between hover:border-[#8B5CF6]/50 transition-colors">
+            <Card key={agent.id} className="flex flex-col justify-between hover:border-foreground/40 transition-colors">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base font-bold">
                     <Link
                       href={agentDetailRoute(agent.id)}
-                      className="flex items-center gap-2 hover:text-[#8B5CF6] transition-colors group"
+                      className="flex items-center gap-2 hover:text-foreground transition-colors group"
                     >
-                      <Bot className="h-5 w-5 text-[#8B5CF6]" />
+                      <Bot className="h-5 w-5 text-muted-foreground" />
                       <span>{agent.displayName || agent.name}</span>
                       <ArrowUpRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" />
                     </Link>

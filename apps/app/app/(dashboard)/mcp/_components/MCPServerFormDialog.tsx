@@ -373,7 +373,7 @@ export function MCPServerFormDialog({
                     <FormItem className="space-y-2">
                       <FormLabel>
                         <span className="flex items-center gap-1">
-                          <KeyRound className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                           Bearer Auth Token (Optional)
                         </span>
                       </FormLabel>
@@ -398,14 +398,14 @@ export function MCPServerFormDialog({
                 <div className="space-y-2 rounded-md border border-border p-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold flex items-center gap-1">
-                      <KeyRound className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                      <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                       Additional Headers (Optional)
                     </Label>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-6 text-xs gap-1 text-[#8B5CF6]"
+                      className="h-6 text-xs gap-1 text-muted-foreground"
                       onClick={() =>
                         form.setValue("headerRows", [
                           ...headerRows,
@@ -476,7 +476,7 @@ export function MCPServerFormDialog({
                     <FormItem className="space-y-2">
                       <FormLabel>
                         <span className="flex items-center gap-1">
-                          <Cpu className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                          <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
                           Command
                         </span>
                       </FormLabel>
@@ -515,7 +515,7 @@ export function MCPServerFormDialog({
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold">
                       <span className="flex items-center gap-1">
-                        <Globe className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
                         Environment
                       </span>
                     </Label>
@@ -523,7 +523,7 @@ export function MCPServerFormDialog({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-6 text-xs gap-1 text-[#8B5CF6]"
+                      className="h-6 text-xs gap-1 text-muted-foreground"
                       onClick={() =>
                         form.setValue("envRows", [
                           ...envRows,

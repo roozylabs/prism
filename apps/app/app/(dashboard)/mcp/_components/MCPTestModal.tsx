@@ -445,7 +445,7 @@ export function MCPTestModal({
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Terminal className="h-4 w-4 text-[#8B5CF6]" />
+            <Terminal className="h-4 w-4 text-muted-foreground" />
             <span>Test MCP Server: {server?.displayName || server?.name}</span>
           </DialogTitle>
           <DialogDescription>

@@ -123,7 +123,7 @@ export default function PlaygroundPage() {
                 )}
               </Button>
 
-              <Button variant="outline" asChild className="gap-2 text-xs border-violet-500/30">
+              <Button variant="outline" asChild className="gap-2 text-xs">
                 <Link href="/sandbox">
                   <Box className="h-4 w-4 text-primary" />
                   <span>Live Sandbox</span>
@@ -163,7 +163,7 @@ export default function PlaygroundPage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[10px]">TOP MATCH SCORE</span>
-                    <span className="font-bold text-[#7C3AED]">{decisionDetails.score}</span>
+                    <span className="font-bold text-foreground">{decisionDetails.score}</span>
                   </div>
                 </div>
 
@@ -173,7 +173,7 @@ export default function PlaygroundPage() {
                     {decisionDetails.candidates.map((cand: ApiModelScoreDetail, idx: number) => (
                       <div key={idx} className="flex justify-between items-center font-mono text-[11px] border-t border-border/40 pt-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-[#7C3AED] font-bold">#{idx + 1}</span>
+                          <span className="text-foreground font-bold">#{idx + 1}</span>
                           <span className="font-semibold">{cand.displayName || cand.slug || cand.modelId}</span>
                           <span className="text-muted-foreground text-[10px]">({cand.providerName})</span>
                         </div>

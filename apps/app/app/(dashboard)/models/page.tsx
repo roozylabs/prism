@@ -201,7 +201,7 @@ export default function ModelsPage() {
         <Card className="p-4 border-border">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground font-medium">Connected Adapters</span>
-            <Cpu className="h-4 w-4 text-[#8B5CF6]" />
+            <Cpu className="h-4 w-4 text-muted-foreground" />
           </div>
           <p className="text-2xl font-bold font-mono mt-2 text-foreground">
             {uniqueProvidersCount > 0 ? uniqueProvidersCount : providerOptions.length}
@@ -221,7 +221,7 @@ export default function ModelsPage() {
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Layers className="h-4 w-4 text-[#8B5CF6]" />
+              <Layers className="h-4 w-4 text-muted-foreground" />
               <span>Available LLM Models ({filteredModels.length})</span>
             </CardTitle>
 

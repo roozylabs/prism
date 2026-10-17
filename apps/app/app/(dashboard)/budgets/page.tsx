@@ -215,7 +215,7 @@ export default function BudgetsPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                        <Wallet className="h-4 w-4 text-[#8B5CF6]" />
+                        <Wallet className="h-4 w-4 text-muted-foreground" />
                         <span>Monthly Organization Budget</span>
                       </CardTitle>
                       <Badge variant={usagePercent > 80 ? 'destructive' : 'success'}>
@@ -281,7 +281,7 @@ export default function BudgetsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-[#8B5CF6]" />
+                <Wallet className="h-4 w-4 text-muted-foreground" />
                 <span>Multi-Tenant Workspace & Agent Quotas</span>
               </CardTitle>
             </CardHeader>

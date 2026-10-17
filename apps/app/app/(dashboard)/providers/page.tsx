@@ -113,7 +113,7 @@ export default function ProvidersPage() {
                     asChild
                   >
                     <Link href={AppRoutes.CREDENTIALS}>
-                      <KeyRound className="h-3.5 w-3.5 text-violet-400" /> Configure Keys
+                      <KeyRound className="h-3.5 w-3.5 text-muted-foreground" /> Configure Keys
                     </Link>
                   </Button>
 

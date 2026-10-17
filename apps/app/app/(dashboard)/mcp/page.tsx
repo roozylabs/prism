@@ -152,10 +152,10 @@ export default function MCPPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-[#8B5CF6]" />
+                      <Globe className="h-4 w-4 text-muted-foreground" />
                       <Link
                         href={mcpDetailRoute(s.id)}
-                        className="font-semibold text-sm hover:text-[#8B5CF6] hover:underline"
+                        className="font-semibold text-sm hover:text-foreground hover:underline"
                       >
                         {s.displayName || s.name}
                       </Link>
@@ -246,7 +246,7 @@ export default function MCPPage() {
                       asChild
                     >
                       <Link href={mcpDetailRoute(s.id)}>
-                        <Activity className="h-3 w-3 text-[#8B5CF6]" />
+                        <Activity className="h-3 w-3 text-muted-foreground" />
                         <span>Details</span>
                       </Link>
                     </Button>
@@ -256,7 +256,7 @@ export default function MCPPage() {
                       className="h-7 text-xs gap-1"
                       onClick={() => openTestModal(s)}
                     >
-                      <Play className="h-3 w-3 text-[#8B5CF6]" />
+                      <Play className="h-3 w-3 text-muted-foreground" />
                       <span>Test</span>
                     </Button>
                     <Button
@@ -276,7 +276,7 @@ export default function MCPPage() {
                       disabled={isSyncingThis}
                     >
                       {isSyncingThis ? (
-                        <Loader2 className="h-3 w-3 animate-spin text-[#8B5CF6]" />
+                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                       ) : (
                         <RefreshCw className="h-3 w-3" />
                       )}

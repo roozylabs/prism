@@ -92,7 +92,7 @@ function FormTooltipLabel({
         </TooltipTrigger>
         <TooltipContent
           side="top"
-          className="max-w-xs text-[11px] leading-relaxed bg-console-header border-violet-500/30 text-slate-200 shadow-xl"
+          className="max-w-xs text-[11px] leading-relaxed bg-console-header border-slate-800 text-slate-200 shadow-xl"
         >
           {tooltip}
         </TooltipContent>
@@ -128,7 +128,7 @@ function renderInlineMarkdown(text: string): React.ReactNode {
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-violet-500/15 text-prism-cyan font-mono text-[11px]"
+          className="px-1.5 py-0.5 rounded bg-slate-800 text-prism-cyan font-mono text-[11px]"
         >
           {token.slice(1, -1)}
         </code>
@@ -164,10 +164,10 @@ function FormattedSandboxOutput({ content }: { content: string }) {
           return (
             <div
               key={index}
-              className="my-3 rounded-md border border-violet-500/25 bg-console-card overflow-hidden shadow-md"
+              className="my-3 rounded-md border border-slate-800 bg-console-card overflow-hidden shadow-md"
             >
-              <div className="flex items-center justify-between px-3 py-1.5 bg-console-header border-b border-violet-500/20 text-[11px]">
-                <div className="flex items-center gap-1.5 text-primary font-semibold font-mono">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-console-header border-b border-slate-800 text-[11px]">
+                <div className="flex items-center gap-1.5 text-slate-100 font-semibold font-mono">
                   <Code2Icon className="h-3.5 w-3.5" />
                   <span className="uppercase tracking-wider">{language}</span>
                 </div>
@@ -181,7 +181,7 @@ function FormattedSandboxOutput({ content }: { content: string }) {
                     toast.success(`Copied ${language} code block`);
                   }}
                 >
-                  <CopyIcon className="h-3 w-3 text-primary" />
+                  <CopyIcon className="h-3 w-3 text-slate-100" />
                   <span>Copy</span>
                 </Button>
               </div>
@@ -204,7 +204,7 @@ function FormattedSandboxOutput({ content }: { content: string }) {
                 return (
                   <h4
                     key={lineIdx}
-                    className="text-primary font-bold text-xs pt-3 pb-1 border-b border-violet-500/20 flex items-center gap-1.5"
+                    className="text-slate-100 font-bold text-xs pt-3 pb-1 border-b border-slate-800 flex items-center gap-1.5"
                   >
                     <span className="text-prism-cyan">#</span>
                     <span>{renderInlineMarkdown(headingText)}</span>
@@ -214,7 +214,7 @@ function FormattedSandboxOutput({ content }: { content: string }) {
 
               if (trimmed === "---" || trimmed === "***") {
                 return (
-                  <hr key={lineIdx} className="border-violet-500/20 my-3" />
+                  <hr key={lineIdx} className="border-slate-800 my-3" />
                 );
               }
 
@@ -225,7 +225,7 @@ function FormattedSandboxOutput({ content }: { content: string }) {
                     key={lineIdx}
                     className="flex items-start gap-2 pl-2 text-slate-200"
                   >
-                    <span className="text-primary font-semibold min-w-[16px] text-[11px] font-mono">
+                    <span className="text-slate-100 font-semibold min-w-[16px] text-[11px] font-mono">
                       {numMatch[1]}.
                     </span>
                     <div className="flex-1">
@@ -242,7 +242,7 @@ function FormattedSandboxOutput({ content }: { content: string }) {
                     key={lineIdx}
                     className="flex items-start gap-2 pl-2 text-slate-200"
                   >
-                    <span className="text-primary font-bold mt-0.5">•</span>
+                    <span className="text-slate-100 font-bold mt-0.5">•</span>
                     <div className="flex-1">
                       {renderInlineMarkdown(itemText)}
                     </div>
@@ -851,7 +851,7 @@ export default function SandboxPage() {
                                 </TooltipTrigger>
                                 <TooltipContent
                                   side="top"
-                                  className="max-w-xs text-[11px] bg-console-header border-violet-500/30 text-slate-200"
+                                  className="max-w-xs text-[11px] bg-console-header border-slate-800 text-slate-200"
                                 >
                                   Receive AI responses word-by-word in real time
                                   (SSE streaming) without waiting for full
@@ -899,7 +899,7 @@ export default function SandboxPage() {
                                 </TooltipTrigger>
                                 <TooltipContent
                                   side="top"
-                                  className="max-w-xs text-[11px] bg-console-header border-violet-500/30 text-slate-200"
+                                  className="max-w-xs text-[11px] bg-console-header border-slate-800 text-slate-200"
                                 >
                                   Offloads requests to a background Redis queue.
                                   Ideal for long-running prompts without keeping
@@ -982,7 +982,7 @@ export default function SandboxPage() {
                   {routedModel && (
                     <Badge
                       variant="violet"
-                      className="font-mono text-[10px] gap-1 border-violet-500/30"
+                      className="font-mono text-[10px] gap-1 border-slate-800"
                     >
                       <LayersIcon className="h-3 w-3" />
                       Model: {routedModel}
@@ -1011,7 +1011,7 @@ export default function SandboxPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 px-2.5 text-xs gap-1.5 border-violet-500/20 hover:border-violet-500/40"
+                        className="h-7 px-2.5 text-xs gap-1.5 border-slate-800 hover:border-slate-700"
                         onClick={handleCopyOutput}
                         disabled={!executionOutput || isExecuting}
                       >
@@ -1032,7 +1032,7 @@ export default function SandboxPage() {
                 {/* Simple Loading Indicator */}
                 {isExecuting && !executionOutput ? (
                   <div className="h-full flex flex-col items-center justify-center space-y-4 p-6 text-center">
-                    <Loader2Icon className="h-8 w-8 text-primary animate-spin" />
+                    <Loader2Icon className="h-8 w-8 text-slate-100 animate-spin" />
                     <div className="space-y-1">
                       <p className="text-xs font-medium text-foreground">
                         {isAsyncMode
@@ -1051,7 +1051,7 @@ export default function SandboxPage() {
                     <FormattedSandboxOutput content={executionOutput} />
                     {/* Blinking cursor effect during active streaming */}
                     {isExecuting && (
-                      <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle rounded-sm" />
+                      <span className="inline-block w-2 h-4 bg-slate-100 animate-pulse ml-1 align-middle rounded-sm" />
                     )}
                   </div>
                 ) : (
