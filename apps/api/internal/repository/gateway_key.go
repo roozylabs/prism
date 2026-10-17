@@ -190,26 +190,24 @@ func (r *GatewayKeyRepository) Update(ctx context.Context, k *models.GatewayAPIK
 	return err
 }
 
-func (r *GatewayKeyRepository) Delete(ctx context.Context, id string, userID ...string) error {
+// Delete removes the key and returns its hash, so a cache keyed by hash can
+// drop it. sql.ErrNoRows means no such key, or not the user's.
+func (r *GatewayKeyRepository) Delete(ctx context.Context, id string, userID ...string) (string, error) {
 	uid := ""
 	if len(userID) > 0 {
 		uid = userID[0]
 	}
-	var res sql.Result
-	var err error
+	var row *sql.Row
 	if uid != "" {
-		res, err = r.db.ExecContext(ctx, `DELETE FROM gateway_api_keys WHERE id = $1 AND user_id = $2`, id, uid)
+		row = r.db.QueryRowContext(ctx, `DELETE FROM gateway_api_keys WHERE id = $1 AND user_id = $2 RETURNING key_hash`, id, uid)
 	} else {
-		res, err = r.db.ExecContext(ctx, `DELETE FROM gateway_api_keys WHERE id = $1`, id)
+		row = r.db.QueryRowContext(ctx, `DELETE FROM gateway_api_keys WHERE id = $1 RETURNING key_hash`, id)
 	}
-	if err != nil {
-		return err
+	var keyHash string
+	if err := row.Scan(&keyHash); err != nil {
+		return "", err
 	}
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return keyHash, nil
 }
 
 func (r *GatewayKeyRepository) IncrementUsage(ctx context.Context, id string) error {

@@ -12,13 +12,20 @@ import (
 	"github.com/roozylabs/prism/internal/utils"
 )
 
+// GatewayKeyInvalidator drops a key from the gateway's lookup cache, so a
+// deleted key stops working at once instead of when the cache entry expires.
+type GatewayKeyInvalidator interface {
+	Invalidate(keyHash string)
+}
+
 type GatewayKeyHandler struct {
 	keys        *repository.GatewayKeyRepository
 	credentials *repository.CredentialRepository
+	cache       GatewayKeyInvalidator
 }
 
-func NewGatewayKeyHandler(keys *repository.GatewayKeyRepository, credentials *repository.CredentialRepository) *GatewayKeyHandler {
-	return &GatewayKeyHandler{keys: keys, credentials: credentials}
+func NewGatewayKeyHandler(keys *repository.GatewayKeyRepository, credentials *repository.CredentialRepository, cache GatewayKeyInvalidator) *GatewayKeyHandler {
+	return &GatewayKeyHandler{keys: keys, credentials: credentials, cache: cache}
 }
 
 type CreateGatewayKeyRequest struct {
@@ -122,9 +129,13 @@ func (h *GatewayKeyHandler) List(c *gin.Context) {
 func (h *GatewayKeyHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	userID := c.GetString("userId")
-	if err := h.keys.Delete(c.Request.Context(), id, userID); err != nil {
+	keyHash, err := h.keys.Delete(c.Request.Context(), id, userID)
+	if err != nil {
 		httputil.RespondNotFound(c, "Gateway key not found", err, "GATEWAY_KEY_NOT_FOUND")
 		return
+	}
+	if h.cache != nil {
+		h.cache.Invalidate(keyHash)
 	}
 	c.Status(http.StatusNoContent)
 }

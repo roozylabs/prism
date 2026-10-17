@@ -1,42 +1,81 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/roozylabs/prism/internal/httputil"
 	"github.com/roozylabs/prism/internal/models"
+	prismredis "github.com/roozylabs/prism/internal/redis"
 )
 
-func GatewayRateLimitMiddleware(rdb *goredis.Client, limit int) gin.HandlerFunc {
+// RateLimiter decides whether one more request fits a key's window.
+type RateLimiter interface {
+	Allow(ctx context.Context, key string, limit int) (prismredis.Decision, error)
+}
+
+// GatewayRateLimitMiddleware limits requests per gateway key per minute. The
+// key's own rate_limit applies, or defaultLimit when the key has none. When
+// the limiter cannot be reached the request goes through (see the Redis
+// failure table in docs/INFRASTRUCTURE.md), and that is logged.
+func GatewayRateLimitMiddleware(limiter RateLimiter, defaultLimit int) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		gatewayKey := c.MustGet("gatewayKey").(*models.GatewayAPIKey)
 		tc := GetTenantContext(c)
-		key := fmt.Sprintf("tenant:%s:gateway:%s:rate_limit", tc.OrgID, gatewayKey.KeyHash)
 
-		now := time.Now().UnixMilli()
-		window := now - 60000
-
-		ctx := c.Request.Context()
-		pipe := rdb.Pipeline()
-		pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", window))
-		countCmd := pipe.ZCard(ctx, key)
-		pipe.ZAdd(ctx, key, goredis.Z{Score: float64(now), Member: fmt.Sprintf("%d:%d", now, gatewayKey.RequestCount)})
-		pipe.Expire(ctx, key, 2*time.Minute)
-
-		if _, err := pipe.Exec(ctx); err != nil {
+		limit := gatewayKey.RateLimit
+		if limit <= 0 {
+			limit = defaultLimit
+		}
+		if limit <= 0 {
 			c.Next()
 			return
 		}
 
-		if countCmd.Val() >= int64(limit) {
+		key := fmt.Sprintf("tenant:%s:gateway:%s:rate_limit", tc.OrgID, gatewayKey.KeyHash)
+		d, err := limiter.Allow(c.Request.Context(), key, limit)
+		if err != nil {
+			logRateLimitFailOpen(err)
+			c.Next()
+			return
+		}
+
+		remaining := int64(limit) - d.Count
+		if remaining < 0 {
+			remaining = 0
+		}
+		c.Header("X-RateLimit-Limit", strconv.Itoa(limit))
+		c.Header("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
+
+		if !d.Allowed {
+			c.Header("Retry-After", strconv.FormatInt(int64(d.RetryAfter/time.Second), 10))
 			httputil.RespondError(c, http.StatusTooManyRequests, "Rate limit exceeded", nil, "RATE_LIMIT_EXCEEDED")
 			return
 		}
 
 		c.Next()
 	}
+}
+
+var (
+	rateLimitLogMu   sync.Mutex
+	rateLimitLogLast time.Time
+)
+
+// logRateLimitFailOpen reports a limiter failure at most once every 10
+// seconds: during a Redis outage every gateway request would hit it.
+func logRateLimitFailOpen(err error) {
+	rateLimitLogMu.Lock()
+	defer rateLimitLogMu.Unlock()
+	if time.Since(rateLimitLogLast) < 10*time.Second {
+		return
+	}
+	rateLimitLogLast = time.Now()
+	log.Printf("gateway rate limit: limiter unavailable, letting requests through: %v", err)
 }
