@@ -189,7 +189,15 @@ func (r *RoutingPolicyRepository) Delete(ctx context.Context, id, userID string)
 	return requireOneRow(res, err)
 }
 
+// marshalPolicyJSON fills the JSON columns; an absent map is stored as {}
+// (the columns are jsonb NOT NULL, and '' is not valid JSON).
 func marshalPolicyJSON(p *models.RoutingPolicy) error {
+	if p.Weights == nil && p.WeightsJSON == "" {
+		p.WeightsJSON = "{}"
+	}
+	if p.Constraints == nil && p.ConstraintsJSON == "" {
+		p.ConstraintsJSON = "{}"
+	}
 	if p.Weights != nil {
 		b, err := json.Marshal(p.Weights)
 		if err != nil {
