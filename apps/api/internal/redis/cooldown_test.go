@@ -82,8 +82,8 @@ func TestGetActiveStreamsScopedToUser(t *testing.T) {
 	alice, bob := "alice-"+suffix, "bob-"+suffix
 	aliceReq, bobReq := "req-a-"+suffix, "req-b-"+suffix
 	t.Cleanup(func() {
-		_ = s.UntrackActiveStream(ctx, aliceReq)
-		_ = s.UntrackActiveStream(ctx, bobReq)
+		_ = s.UntrackActiveStream(ctx, alice, aliceReq)
+		_ = s.UntrackActiveStream(ctx, bob, bobReq)
 	})
 
 	if err := s.TrackActiveStream(ctx, aliceReq, alice, "model-a-"+suffix, "key-a", "cred-a"); err != nil {
@@ -107,5 +107,23 @@ func TestGetActiveStreamsScopedToUser(t *testing.T) {
 	}
 	if all.ByModel["model-a-"+suffix] != 1 || all.ByModel["model-b-"+suffix] != 1 {
 		t.Fatalf("unscoped summary is missing streams: %+v", all)
+	}
+
+	// Each user has a hash of their own that expires by itself, so a
+	// dashboard read never touches another tenant's entries.
+	ttl, err := s.rdb.TTL(ctx, activeRequestsKey(alice)).Result()
+	if err != nil || ttl <= 0 || ttl > activeRequestsTTL {
+		t.Fatalf("alice's hash TTL %v err %v, want within %v", ttl, err, activeRequestsTTL)
+	}
+	if n, _ := s.rdb.HLen(ctx, activeRequestsKey(alice)).Result(); n != 1 {
+		t.Fatalf("alice's hash holds %d records, want only her own", n)
+	}
+
+	if err := s.UntrackActiveStream(ctx, alice, aliceReq); err != nil {
+		t.Fatal(err)
+	}
+	mine, _ = s.GetActiveStreams(ctx, alice)
+	if mine.TotalActive != 0 {
+		t.Fatalf("untracked stream still counted: %+v", mine)
 	}
 }

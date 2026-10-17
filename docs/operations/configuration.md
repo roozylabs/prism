@@ -14,6 +14,7 @@ The root `.env.example` file defines configuration parameters classified into 6 
 | `APP_ENV` | Environment | Optional | No | `production` | Defaults to `production`; set `development` for local work. |
 | `SERVER_PORT` | Network | Optional | No | `8080` | Listens on port 8080. |
 | `SHUTDOWN_TIMEOUT_SECONDS` | Network | Optional | No | `30` | On SIGTERM the API stops accepting connections and waits this long for in-flight requests and LLM streams before closing them. Keep it below the container `stop_grace_period` (45s in `docker-compose.yml`). |
+| `DB_STATEMENT_TIMEOUT_MS` | Database | Optional | No | `30000` | Every statement on the API's connection pool is cancelled by the server after this long, so a slow query releases its connection. Migrations are not bound by it. `0` leaves the server default. |
 | `RETENTION_*_DAYS` | Data | Optional | No | see `.env.example` | Days the hourly retention worker keeps rows of `request_logs` (180), `routing_decisions` (30, holds prompt previews), `request_payloads` (30), `tool_invocations` (30), `mcp_server_invocations` (30), `ai_audit_trails` (365), `audit_logs` (365), `cost_anomalies` (180), `budget_alerts` (180). `0` keeps forever. Expired sessions, verification tokens and OAuth states are always deleted. Deletes run in batches of 5,000, at most a million rows per table per run. |
 | `APP_PORT` | Network | Optional | No | `3000` | Listens on port 3000. |
 | `POSTGRES_DB` | Database | **Required** | No | `prism` | Database connection fails. |

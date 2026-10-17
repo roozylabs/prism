@@ -34,17 +34,17 @@ import (
 )
 
 type Engine struct {
-	router       *Router
-	creds        *repository.CredentialRepository
-	cooldown     *goredis.CooldownStore
-	publisher    *goredis.EventPublisher
-	oauthMgr     *OAuthTokenManager
-	throttler    *ProviderThrottler
-	concurrency  *ProviderConcurrencyLimiter
-	budgetMgr    *BudgetManager
-	policyRepo   *repository.RoutingPolicyRepository
-	decisionRepo *repository.RoutingDecisionRepository
-	payloads     *repository.PayloadRepository
+	router         *Router
+	creds          *repository.CredentialRepository
+	cooldown       *goredis.CooldownStore
+	publisher      *goredis.EventPublisher
+	oauthMgr       *OAuthTokenManager
+	throttler      *ProviderThrottler
+	concurrency    *ProviderConcurrencyLimiter
+	budgetMgr      *BudgetManager
+	policyRepo     *repository.RoutingPolicyRepository
+	decisionRepo   *repository.RoutingDecisionRepository
+	payloads       *repository.PayloadRepository
 	toolCalls      *repository.ToolInvocationRepository
 	mcpInvocations *repository.MCPInvocationRepository
 	mcpServers     *repository.MCPServerRepository
@@ -59,6 +59,9 @@ type Engine struct {
 	streamKeepalive      time.Duration
 	streamIdleTimeout    time.Duration
 	streamAttemptTimeout time.Duration
+	// effects runs the writes a request leaves behind, off the request path
+	// and on a bounded number of workers.
+	effects *SideEffects
 }
 
 func (e *Engine) SetMCPRepositories(invocations *repository.MCPInvocationRepository, servers *repository.MCPServerRepository) {
@@ -78,12 +81,12 @@ func (e *Engine) recordMCPInvocationsIfAny(ctx context.Context, userID string, r
 			srv, _ := e.mcpServers.FindByUserAndName(ctx, userID, serverName)
 			if srv != nil {
 				inv := &models.MCPInvocation{
-					UserID:       userID,
-					MCPServerID:  srv.ID,
-					ToolName:     toolName,
-					StatusCode:   200,
-					IsError:      false,
-					LatencyMs:    0,
+					UserID:      userID,
+					MCPServerID: srv.ID,
+					ToolName:    toolName,
+					StatusCode:  200,
+					IsError:     false,
+					LatencyMs:   0,
 				}
 				_ = e.mcpInvocations.SaveInvocation(ctx, inv)
 			}
@@ -134,7 +137,20 @@ func NewEngine(router *Router, creds *repository.CredentialRepository, cooldown 
 		streamKeepalive:      defaultStreamKeepalive,
 		streamIdleTimeout:    defaultStreamIdleTimeout,
 		streamAttemptTimeout: defaultStreamAttemptTimeout,
+		effects:              NewSideEffects(defaultSideEffectWorkers, defaultSideEffectQueue, defaultSideEffectTimeout),
 	}
+}
+
+// Shutdown lets the queued background writes finish, or gives up when ctx
+// ends. Call it after the HTTP server has drained.
+func (e *Engine) Shutdown(ctx context.Context) error {
+	return e.effects.Stop(ctx)
+}
+
+// SideEffectsDropped counts background writes refused because the queue
+// was full.
+func (e *Engine) SideEffectsDropped() int64 {
+	return e.effects.Dropped()
 }
 
 type ProxyRequest struct {
@@ -258,12 +274,8 @@ func (e *Engine) resolveRoutes(c *gin.Context, req *ProxyRequest, gatewayKey *mo
 			k := gatewayKey.ID
 			keyID = &k
 		}
-		go func() {
-			defer func() { _ = recover() }()
-			payloadJSON, ok := canonicalMessagesJSON(req)
-			if !ok {
-				return
-			}
+		// Serialise now, while the request is unchanged; write later.
+		if payloadJSON, ok := canonicalMessagesJSON(req); ok {
 			p := &models.RequestPayload{
 				RequestID:       requestID,
 				GatewayAPIKeyID: keyID,
@@ -271,10 +283,12 @@ func (e *Engine) resolveRoutes(c *gin.Context, req *ProxyRequest, gatewayKey *mo
 				PromptHash:      utils.HashSHA256(string(payloadJSON)),
 				ByteSize:        len(payloadJSON),
 			}
-			if err := e.payloads.Create(context.Background(), p); err != nil {
-				log.Printf("persist request payload: %v", err)
-			}
-		}()
+			e.effects.Go("request payload", func(ctx context.Context) {
+				if err := e.payloads.Create(ctx, p); err != nil {
+					log.Printf("persist request payload: %v", err)
+				}
+			})
+		}
 	}
 
 	if req.Model == "roozy-auto" {
@@ -319,7 +333,9 @@ func (e *Engine) resolveRoutes(c *gin.Context, req *ProxyRequest, gatewayKey *mo
 			decision.RequestID = safeGetString(c, "requestID")
 			// Log routing decision asynchronously
 			if userID != "" {
-				go e.logRoutingDecision(context.Background(), userID, decision)
+				e.effects.Go("routing decision", func(ctx context.Context) {
+					e.logRoutingDecision(ctx, userID, decision)
+				})
 			}
 		}
 		return routes, err
@@ -415,7 +431,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 
 	defer func() {
 		bgCtx := context.Background()
-		_ = e.cooldown.UntrackActiveStream(bgCtx, reqID)
+		_ = e.cooldown.UntrackActiveStream(bgCtx, userID, reqID)
 		e.publishActiveStreams(bgCtx, userID)
 	}()
 
@@ -544,7 +560,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 			_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, retryAfter)
 			RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventCooldown, route.Credential.ID, route.Credential.ProviderID)
-			go e.syncCredentialHealth(context.Background(), route.Credential, true, false)
+			e.syncCredentialHealthLater(route.Credential, true, false)
 			if e.publisher != nil {
 				_ = e.publisher.Publish(ctx, credentialOwner(route.Credential), "CREDENTIAL_COOLDOWN_STARTED", map[string]interface{}{
 					"credentialId": route.Credential.ID,
@@ -568,7 +584,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 				e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, true, retryAfter, bodyStr)
 				_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, retryAfter)
 				RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventExhaustion, route.Credential.ID, route.Credential.ProviderID)
-				go e.syncCredentialHealth(context.Background(), route.Credential, true, true)
+				e.syncCredentialHealthLater(route.Credential, true, true)
 				lastErr = fmt.Errorf("upstream rate/quota limit (%d) on credential %s: %s", httpResp.StatusCode, route.Credential.ID, strings.TrimSpace(bodyStr))
 				lastAttemptStatus = httpResp.StatusCode
 				attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
@@ -576,7 +592,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			case authFailureForbidden:
 				_ = e.cooldown.SetCooldown(ctx, route.Credential.ID, forbiddenCooldownSeconds)
 				RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventCooldown, route.Credential.ID, route.Credential.ProviderID)
-				go e.syncCredentialHealth(context.Background(), route.Credential, true, false)
+				e.syncCredentialHealthLater(route.Credential, true, false)
 			case authFailureInvalid:
 				_ = e.creds.UpdateStatus(ctx, route.Credential.ID, models.CredentialStatusInvalid)
 				RecordCredentialEventTelemetry(ctx, telemetry.CredentialEventFailure, route.Credential.ID, route.Credential.ProviderID)
@@ -599,7 +615,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 					})
 				}
 			}
-			go e.syncCredentialHealth(context.Background(), route.Credential, true, false)
+			e.syncCredentialHealthLater(route.Credential, true, false)
 			lastErr = fmt.Errorf("upstream returned %d", httpResp.StatusCode)
 			e.recordModelFailure(route.Model.Slug, attemptStart)
 			lastAttemptStatus = httpResp.StatusCode
@@ -614,7 +630,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 			lastErr = fmt.Errorf("upstream error %d on credential %s: %s", httpResp.StatusCode, route.Credential.ID, strings.TrimSpace(bodyStr))
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
-			go e.syncCredentialHealth(context.Background(), route.Credential, false, false)
+			e.syncCredentialHealthLater(route.Credential, false, false)
 
 			// If running smart routing (prism-auto/roozy-auto/auto) and more candidate routes exist, failover to next candidate!
 			if (req.Model == "prism-auto" || req.Model == "roozy-auto" || req.Model == "auto") && i < len(routes)-1 {
@@ -625,10 +641,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		}
 
 		// Success → reset 50x error count
-		_ = e.cooldown.RecordSuccess(ctx, route.Credential.ID)
-		_ = e.creds.IncrementUsage(ctx, route.Credential.ID)
-		e.extractAndSaveQuota(ctx, route.Credential, httpResp.Header, false, 0, "")
-		go e.syncCredentialHealth(context.Background(), route.Credential, false, false)
+		e.recordAttemptSuccess(route.Credential, httpResp.Header, false)
 
 		resp, err := route.Adapter.ParseResponse(bytes.NewReader(body))
 		if err != nil {
@@ -655,9 +668,10 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 		if e.telemetry != nil {
 			// Non-streaming responses have no first token; record TTFT as 0 so
 			// total latency does not count as TTFT in the p95 speed penalty.
-			go func(mSlug string, lat int) {
-				_ = e.telemetry.RecordModelLatency(context.Background(), mSlug, 0, lat, true)
-			}(route.Model.Slug, latency)
+			mSlug, lat := route.Model.Slug, latency
+			e.effects.Go("model latency", func(ctx context.Context) {
+				_ = e.telemetry.RecordModelLatency(ctx, mSlug, 0, lat, true)
+			})
 		}
 
 		modelName := req.Model
@@ -713,15 +727,7 @@ func (e *Engine) Proxy(c *gin.Context, req *ProxyRequest, gatewayKey *models.Gat
 
 		if e.toolCalls != nil || e.mcpInvocations != nil {
 			if recs := ExtractToolCallsFromResponse(resp); len(recs) > 0 {
-				go func(requestID string, recs []ToolCallRecord) {
-					defer func() { _ = recover() }()
-					if e.toolCalls != nil {
-						if err := e.toolCalls.CreateBatch(context.Background(), requestID, recs); err != nil {
-							fmt.Printf("persist tool invocations: %v\n", err)
-						}
-					}
-					e.recordMCPInvocationsIfAny(context.Background(), userID, recs)
-				}(reqID, recs)
+				e.persistToolCalls(reqID, userID, recs)
 			}
 		}
 
@@ -778,7 +784,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 
 	defer func() {
 		bgCtx := context.Background()
-		_ = e.cooldown.UntrackActiveStream(bgCtx, reqID)
+		_ = e.cooldown.UntrackActiveStream(bgCtx, userID, reqID)
 		e.publishActiveStreams(bgCtx, userID)
 	}()
 
@@ -994,7 +1000,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 			lastErr = fmt.Errorf("upstream error %d on credential %s: %s", httpResp.StatusCode, route.Credential.ID, strings.TrimSpace(bodyStr))
 			lastAttemptStatus = httpResp.StatusCode
 			attempts = append(attempts, newAttemptRecord(route, httpResp.StatusCode, lastErr.Error(), attemptStart))
-			go e.syncCredentialHealth(context.Background(), route.Credential, false, false)
+			e.syncCredentialHealthLater(route.Credential, false, false)
 
 			// If running smart routing (prism-auto/roozy-auto/auto) and more candidate routes exist, failover to next candidate!
 			if (req.Model == "prism-auto" || req.Model == "roozy-auto" || req.Model == "auto") && i < len(routes)-1 {
@@ -1005,10 +1011,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		}
 
 		// Success → start streaming & reset 50x error count
-		_ = e.cooldown.RecordSuccess(c.Request.Context(), route.Credential.ID)
-		_ = e.creds.IncrementUsage(c.Request.Context(), route.Credential.ID)
-		_ = e.creds.UpdateStatus(c.Request.Context(), route.Credential.ID, "active")
-		e.extractAndSaveQuota(c.Request.Context(), route.Credential, httpResp.Header, false, 0, "")
+		e.recordAttemptSuccess(route.Credential, httpResp.Header, true)
 		// The body and the provider slot belong to this attempt. They are
 		// freed before failing over to the next route, and at the latest
 		// when the request ends.
@@ -1210,15 +1213,7 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 
 		if e.toolCalls != nil || e.mcpInvocations != nil {
 			if recs := streamToolAcc.Finish(); len(recs) > 0 {
-				go func(requestID string, recs []ToolCallRecord) {
-					defer func() { _ = recover() }()
-					if e.toolCalls != nil {
-						if err := e.toolCalls.CreateBatch(context.Background(), requestID, recs); err != nil {
-							fmt.Printf("persist tool invocations: %v\n", err)
-						}
-					}
-					e.recordMCPInvocationsIfAny(context.Background(), userID, recs)
-				}(reqID, recs)
+				e.persistToolCalls(reqID, userID, recs)
 			}
 		}
 
@@ -1240,9 +1235,10 @@ func (e *Engine) ProxyStream(c *gin.Context, req *ProxyRequest, gatewayKey *mode
 		latency := int(time.Since(start).Milliseconds())
 
 		if e.telemetry != nil {
-			go func(mSlug string, ttft int, lat int, ok bool) {
-				_ = e.telemetry.RecordModelLatency(context.Background(), mSlug, ttft, lat, ok)
-			}(route.Model.Slug, ttftMs, latency, !streamInterrupted)
+			mSlug, ttft, lat, ok := route.Model.Slug, ttftMs, latency, !streamInterrupted
+			e.effects.Go("model latency", func(ctx context.Context) {
+				_ = e.telemetry.RecordModelLatency(ctx, mSlug, ttft, lat, ok)
+			})
 		}
 
 		modelName := req.Model
@@ -1307,21 +1303,67 @@ func (e *Engine) recordModelFailure(modelSlug string, attemptStart time.Time) {
 		return
 	}
 	lat := int(time.Since(attemptStart).Milliseconds())
-	go func() {
-		_ = e.telemetry.RecordModelLatency(context.Background(), modelSlug, 0, lat, false)
-	}()
+	e.effects.Go("model failure", func(ctx context.Context) {
+		_ = e.telemetry.RecordModelLatency(ctx, modelSlug, 0, lat, false)
+	})
 }
 
 func (e *Engine) backfillActualCost(requestID string, cost float64) {
 	if e.decisionRepo == nil || requestID == "" {
 		return
 	}
-	go func(rid string, c float64) {
-		defer func() { _ = recover() }()
-		if err := e.decisionRepo.UpdateActualCostByRequestID(context.Background(), rid, c); err != nil {
+	e.effects.Go("actual cost", func(ctx context.Context) {
+		if err := e.decisionRepo.UpdateActualCostByRequestID(ctx, requestID, cost); err != nil {
 			log.Printf("backfill actual cost: %v", err)
 		}
-	}(requestID, cost)
+	})
+}
+
+// recordAttemptSuccess writes what a successful upstream call leaves behind
+// (circuit-breaker reset, usage count, quota headers, credential health) off
+// the request path. The headers are copied first: the response is gone by
+// the time the task runs.
+func (e *Engine) recordAttemptSuccess(cred *models.Credential, headers http.Header, markActive bool) {
+	if cred == nil {
+		return
+	}
+	hdr := headers.Clone()
+	e.effects.Go("credential success", func(ctx context.Context) {
+		if e.cooldown != nil {
+			_ = e.cooldown.RecordSuccess(ctx, cred.ID)
+		}
+		if e.creds != nil {
+			_ = e.creds.IncrementUsage(ctx, cred.ID)
+			if markActive {
+				_ = e.creds.UpdateStatus(ctx, cred.ID, "active")
+			}
+		}
+		e.extractAndSaveQuota(ctx, cred, hdr, false, 0, "")
+		e.syncCredentialHealth(ctx, cred, false, false)
+	})
+}
+
+// syncCredentialHealthLater recomputes a credential's health off the
+// request path.
+func (e *Engine) syncCredentialHealthLater(cred *models.Credential, isCoolingDown, isExhausted bool) {
+	if cred == nil {
+		return
+	}
+	e.effects.Go("credential health", func(ctx context.Context) {
+		e.syncCredentialHealth(ctx, cred, isCoolingDown, isExhausted)
+	})
+}
+
+// persistToolCalls stores the tool and MCP calls a response made.
+func (e *Engine) persistToolCalls(requestID, userID string, recs []ToolCallRecord) {
+	e.effects.Go("tool invocations", func(ctx context.Context) {
+		if e.toolCalls != nil {
+			if err := e.toolCalls.CreateBatch(ctx, requestID, recs); err != nil {
+				log.Printf("persist tool invocations: %v", err)
+			}
+		}
+		e.recordMCPInvocationsIfAny(ctx, userID, recs)
+	})
 }
 
 // markUndecryptable marks a credential whose stored secret cannot be decrypted
@@ -1356,13 +1398,18 @@ func getCredentialDisplayName(c *models.Credential) string {
 }
 
 // publishActiveStreams sends userID the summary of its own in-flight requests.
-func (e *Engine) publishActiveStreams(ctx context.Context, userID string) {
-	if e.publisher == nil || userID == "" {
+// publishActiveStreams tells the user's dashboard what is in flight. The
+// summary is read and published off the request path; it reflects the state
+// at the time the task runs, so a later change is not lost.
+func (e *Engine) publishActiveStreams(_ context.Context, userID string) {
+	if e.publisher == nil || e.cooldown == nil || userID == "" {
 		return
 	}
-	if summary, err := e.cooldown.GetActiveStreams(ctx, userID); err == nil {
-		_ = e.publisher.Publish(ctx, userID, "active_streams_update", summary)
-	}
+	e.effects.Go("active streams", func(ctx context.Context) {
+		if summary, err := e.cooldown.GetActiveStreams(ctx, userID); err == nil {
+			_ = e.publisher.Publish(ctx, userID, "active_streams_update", summary)
+		}
+	})
 }
 
 // credentialOwner is the user whose dashboard receives events about cred.
@@ -1569,4 +1616,3 @@ func (e *Engine) syncCredentialHealth(ctx context.Context, cred *models.Credenti
 	_ = e.creds.UpdateHealthAndStatus(ctx, latest.ID, score, status)
 	RecordCredentialHealthTelemetry(ctx, latest.ID, latest.ProviderID, score)
 }
-

@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Errors before the first byte**: the `text/event-stream` headers and the 200 status are set with the first byte, so a failure before any output is answered as a plain JSON error with the right status; a failure after a keepalive is reported inside the stream.
 - **Free models**: a pricing row at zero, or a model named free, is priced at zero; only a model nobody has priced gets the heuristic estimate (free models were charged $0.001–0.002 per 1K tokens). Resolved prices are cached for 5 minutes.
 
+### Changed
+- **Background writes**: the writes a request leaves behind (request payload, routing decision, credential usage and health, quota headers, tool and MCP invocations, model telemetry, cost backfill, the active-streams event) run on a bounded pool of 16 workers with a 10-second deadline each, instead of an unbounded goroutine per write with no timeout. When the queue of 1024 is full the write is dropped and counted, so a slow database costs bookkeeping instead of collapsing request latency. Queued writes get 10 seconds to land on shutdown.
+- **Statement timeout**: every statement on the API's connection pool is cancelled by the server after `DB_STATEMENT_TIMEOUT_MS` (default 30 s); migrations are not bound by it.
+- **Active streams**: the in-flight request hash is per user (`gateway:active_requests:<user>`, expiring after 10 minutes), so a dashboard read no longer scans every tenant's entries twice per request; the record and its expiry are written in one Redis round trip, and the dashboard event is published off the request path. The unscoped view used before deleting a credential or model scans the per-user hashes.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added

@@ -134,7 +134,23 @@ func (s *CooldownStore) DeleteCredentialQuota(ctx context.Context, credentialID 
 	return s.rdb.Del(ctx, key).Err()
 }
 
-const ActiveRequestsHashKey = "gateway:active_requests"
+// ActiveRequestsHashKey prefixes one hash per user of in-flight requests,
+// so a dashboard reads only its own entries. The hash expires on its own
+// when a user goes quiet.
+const (
+	ActiveRequestsHashKey = "gateway:active_requests"
+	activeRequestsTTL     = 10 * time.Minute
+	// activeRequestStaleSec drops a record whose request never untracked
+	// itself (the instance died mid-request).
+	activeRequestStaleSec = 120
+)
+
+func activeRequestsKey(userID string) string {
+	if userID == "" {
+		userID = "-"
+	}
+	return ActiveRequestsHashKey + ":" + userID
+}
 
 type ActiveRequestRecord struct {
 	UserID       string `json:"userId"`
@@ -166,14 +182,19 @@ func (s *CooldownStore) TrackActiveStream(ctx context.Context, reqID, userID, mo
 	if err != nil {
 		return err
 	}
-	return s.rdb.HSet(ctx, ActiveRequestsHashKey, reqID, data).Err()
+	key := activeRequestsKey(userID)
+	pipe := s.rdb.Pipeline()
+	pipe.HSet(ctx, key, reqID, data)
+	pipe.Expire(ctx, key, activeRequestsTTL)
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
-func (s *CooldownStore) UntrackActiveStream(ctx context.Context, reqID string) error {
+func (s *CooldownStore) UntrackActiveStream(ctx context.Context, userID, reqID string) error {
 	if reqID == "" {
 		return nil
 	}
-	return s.rdb.HDel(ctx, ActiveRequestsHashKey, reqID).Err()
+	return s.rdb.HDel(ctx, activeRequestsKey(userID), reqID).Err()
 }
 
 func (s *CooldownStore) IncrementActiveStream(ctx context.Context, modelSlug, gatewayKeyID, credName string) error {
@@ -195,27 +216,52 @@ func (s *CooldownStore) GetActiveStreams(ctx context.Context, userID string) (*A
 		ByKey:        make(map[string]int64),
 	}
 
-	items, err := s.rdb.HGetAll(ctx, ActiveRequestsHashKey).Result()
+	keys := []string{activeRequestsKey(userID)}
+	if userID == "" {
+		// Every user's hash: a rare, dashboard-free check (deleting a
+		// credential or model in use), so a key scan is fine here.
+		all, err := s.scanActiveRequestKeys(ctx)
+		if err != nil {
+			return summary, err
+		}
+		keys = all
+	}
+
+	for _, key := range keys {
+		if err := s.summarizeActiveRequests(ctx, key, summary); err != nil {
+			return summary, err
+		}
+	}
+	return summary, nil
+}
+
+func (s *CooldownStore) scanActiveRequestKeys(ctx context.Context) ([]string, error) {
+	var keys []string
+	iter := s.rdb.Scan(ctx, 0, ActiveRequestsHashKey+":*", 100).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	return keys, iter.Err()
+}
+
+// summarizeActiveRequests adds one hash's live records to summary and drops
+// the records that went stale.
+func (s *CooldownStore) summarizeActiveRequests(ctx context.Context, key string, summary *ActiveStreamsSummary) error {
+	items, err := s.rdb.HGetAll(ctx, key).Result()
 	if err != nil && !errors.Is(err, goredis.Nil) {
-		return summary, err
+		return err
 	}
 
 	now := time.Now().Unix()
 	var staleKeys []string
-
 	for reqID, rawJSON := range items {
 		var rec ActiveRequestRecord
 		if err := json.Unmarshal([]byte(rawJSON), &rec); err != nil {
 			staleKeys = append(staleKeys, reqID)
 			continue
 		}
-
-		// Clean up any requests older than 2 minutes (120s) as stale
-		if rec.StartedAt > 0 && (now-rec.StartedAt) > 120 {
+		if rec.StartedAt > 0 && (now-rec.StartedAt) > activeRequestStaleSec {
 			staleKeys = append(staleKeys, reqID)
-			continue
-		}
-		if userID != "" && rec.UserID != userID {
 			continue
 		}
 
@@ -232,10 +278,9 @@ func (s *CooldownStore) GetActiveStreams(ctx context.Context, userID string) (*A
 	}
 
 	if len(staleKeys) > 0 {
-		_ = s.rdb.HDel(ctx, ActiveRequestsHashKey, staleKeys...).Err()
+		_ = s.rdb.HDel(ctx, key, staleKeys...).Err()
 	}
-
-	return summary, nil
+	return nil
 }
 
 // Circuit Breaker Methods

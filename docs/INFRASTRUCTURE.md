@@ -288,6 +288,14 @@ Gateway key lookups are cached in memory for 10 seconds per instance. Deleting a
 
 A streaming attempt to a provider is bounded by a 30-minute deadline and a 5-minute idle timeout (no byte from upstream), not by the 15-minute timeout that applies to non-streaming calls. While nothing else is being sent, the gateway writes a `: ping` comment to the client every 15 seconds, including while it waits for the provider's response headers, so a proxy or load balancer with an idle timeout (nginx `proxy_read_timeout`, cloud load balancers at 60 s) does not cut a long reasoning pause. Nothing in nginx needs to change for this; keep `proxy_buffering off` for `/v1/`.
 
+On the request path the gateway touches Redis for the cooldown check (one `MGET` over the candidate credentials) and to record the in-flight request (one pipelined `HSET`+`EXPIRE` on the caller's own `gateway:active_requests:<user>` hash, removed when the request ends). Everything else a request leaves behind runs off the path, see below.
+
+### Background writes and the database
+
+The writes a request leaves behind (request payload, routing decision, credential usage and health, quota headers, tool and MCP invocations, model telemetry, cost backfill, the dashboard's active-streams event) run on a pool of 16 workers with a 10-second deadline each. The queue holds 1024 tasks; when it is full the task is dropped and counted in the log (`side effects: queue full`), so a slow PostgreSQL costs some bookkeeping rather than request latency. On shutdown the queue gets 10 seconds to drain after the HTTP server has stopped.
+
+Every statement on the API's connection pool (25 connections) is cancelled by the server after `DB_STATEMENT_TIMEOUT_MS` (default 30 s). Migrations run on their own connection and are not bound by it.
+
 ### 4.2 Generate Secure Secrets
 
 ```bash
