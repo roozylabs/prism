@@ -318,75 +318,24 @@ openssl rand -base64 32
 
 ### 5.1 Go API Gateway Dockerfile
 
-Create `/opt/ai-gateway/api/Dockerfile`:
+The Dockerfiles live in the repository (`apps/api/Dockerfile`, `apps/app/Dockerfile`, `apps/web/Dockerfile`) and are built by CI; nothing is created by hand on the VPS. What they guarantee:
 
-```dockerfile
-# Build stage
-FROM golang:1.22-alpine AS builder
+- **API** (`apps/api/Dockerfile`): built with the Go version pinned in `go.mod` (`golang:1.25.5-alpine`), `-trimpath -ldflags="-s -w"`, no cgo; runs on a current Alpine (`3.22`) as the unprivileged user `prism` (uid 10001). Only `ca-certificates` and `curl` (for the healthcheck) are installed. The image writes nothing at run time.
+- **Dashboard** (`apps/app/Dockerfile`): Next.js standalone output, runs as `nextjs` (uid 1001).
+- **Landing page** (`apps/web/Dockerfile`): Astro server output, runs as the image's `node` user.
 
-WORKDIR /app
+### 5.2 Container limits
 
-# Install dependencies
-RUN apk add --no-cache git
+`docker-compose.yml` caps every service (Compose applies `deploy.resources.limits` without Swarm):
 
-# Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
+| Service | CPU | Memory | Other |
+|---|---|---|---|
+| `api`, `api-green` | 1.0 | 1 GiB (`GOMEMLIMIT=768MiB`) | `no-new-privileges`, `pids_limit: 512` |
+| `app`, `app-green`, `web`, `web-green` | 0.5 | 768 MiB (`--max-old-space-size=512`) | `no-new-privileges`, `pids_limit: 256` |
+| `postgres` | — | 1 GiB | |
+| `redis` | — | 768 MiB (`--maxmemory 512mb`) | |
 
-# Copy source code
-COPY . .
-
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server ./cmd/server
-
-# Runtime stage
-FROM alpine:3.19
-
-RUN apk add --no-cache ca-certificates curl
-
-WORKDIR /app
-
-# Copy binary from builder
-COPY --from=builder /app/server .
-COPY --from=builder /app/migrations ./migrations
-
-EXPOSE 8080
-
-CMD ["./server"]
-```
-
-### 5.2 Next.js Dashboard Dockerfile
-
-Create `/opt/ai-gateway/app/Dockerfile`:
-
-```dockerfile
-# Dependencies
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# Build stage
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-# Runtime stage
-FROM node:20-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV production
-
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
-EXPOSE 3000
-
-CMD ["node", "server.js"]
-```
+`cpus: 1.0` is a CFS quota: the Go runtime sizes `GOMAXPROCS` from it and the container is throttled rather than killed when it is busy. `GOMEMLIMIT` makes the garbage collector work harder before the memory limit is reached, so a burst of large requests is collected instead of OOM-killed.
 
 ---
 
@@ -626,13 +575,16 @@ systemctl restart sshd
 
 ### 9.3 Docker Security
 
-```bash
-# Disable Docker socket exposure (if not needed)
-# Remove - /var/run/docker.sock:/var/run/docker.sock:ro from Traefik
+- Application containers run as unprivileged users (`prism`, `nextjs`, `node`), with `no-new-privileges` and a PID limit; see §5.2 for the resource caps.
+- Every published port is bound to `127.0.0.1`; only nginx is reachable from outside.
+- `/metrics` needs `METRICS_TOKEN` (404 without it), so the public API host leaks nothing about tenants, models or providers.
+- Secrets reach containers through `.env` only; the Docker socket is mounted nowhere.
 
-# Use Docker secrets for sensitive data (optional)
-# Convert environment variables to Docker secrets
-```
+### 9.4 CI pipeline
+
+- Every GitHub Action is pinned to a commit SHA with the version in a comment; `.github/dependabot.yml` opens one grouped PR a week to move the pins.
+- The API job fails when total test coverage drops below `COVERAGE_MIN` (`.github/workflows/api-ci-cd.yml`) and uploads `coverage.out` as an artifact; raise the threshold as tests land.
+- The dashboard job typechecks before it builds; lint and tests for the frontend are tracked under audit finding T1.
 
 ---
 
@@ -742,19 +694,7 @@ sysctl -p
 
 ### 12.2 Docker Optimization
 
-```bash
-# Limit container resources in docker-compose.yml
-services:
-  api:
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-```
+Resource limits are part of `docker-compose.yml` (see §5.2). To give the API more room on a larger VPS, raise `memory` under `api`/`api-green` and set `GOMEMLIMIT` in `.env` to about 75% of it; `reservations.cpus` is ignored by Compose outside Swarm, so only `limits.cpus` matters.
 
 ---
 

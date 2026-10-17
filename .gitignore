@@ -32,6 +32,8 @@ server.exe
 **/.env
 **/.env.local
 **/.env*.local
+# Prometheus bearer token for /metrics (deploy/otel)
+deploy/otel/metrics_token
 
 # Docker & Temporary
 docker-compose.override.yml

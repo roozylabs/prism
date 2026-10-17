@@ -59,13 +59,22 @@ func CorrelationMiddleware() gin.HandlerFunc {
 	}
 }
 
-// GetRequestID returns request ID from Gin context or context.Context.
+// GetRequestID returns the correlation id the client sees: the X-Request-ID
+// response header set by CorrelationMiddleware, or the gin key when no
+// middleware ran. Handlers may store a different id under RequestIDKey for
+// database rows that need a UUID; the header keeps the client's id.
 func GetRequestID(c *gin.Context) string {
-	if c != nil {
-		if val, exists := c.Get(RequestIDKey); exists {
-			if idStr, ok := val.(string); ok && idStr != "" {
-				return idStr
-			}
+	if c == nil {
+		return ""
+	}
+	if c.Writer != nil {
+		if id := c.Writer.Header().Get(RequestIDHeader); id != "" {
+			return id
+		}
+	}
+	if val, exists := c.Get(RequestIDKey); exists {
+		if idStr, ok := val.(string); ok && idStr != "" {
+			return idStr
 		}
 	}
 	return ""

@@ -32,11 +32,13 @@ When an upstream AI provider (e.g. OpenAI, Anthropic, Google Gemini, OpenCode) e
 If an upstream provider suffers a major prolonged outage (>1 hour):
 
 ### 1. Identify Outage via Metrics
-Inspect OpenTelemetry metric `prism_provider_errors_total` grouped by provider:
+Credential cooldowns and failures are counted per provider; the request error counter carries the provider too:
 ```bash
-# Query Prometheus error metrics per provider
-curl -s http://localhost:8080/metrics | grep "prism_provider_errors_total"
+# Cooldowns (429 / 403), exhaustions (quota) and rejected keys per provider
+curl -s -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics \
+  | grep -E "prism_credential_(cooldowns|exhaustions|failures)_total|prism_request_errors_total"
 ```
+The `PrismCredentialCooldowns` and `PrismHighErrorRate` rules in `deploy/otel/prism-alerts.yml` fire on the same counters.
 
 ### 2. Temporarily Disable Provider in Dashboard or DB
 Disable the failing provider to stop candidates from being evaluated:

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/roozylabs/prism/internal/authz"
 	"github.com/roozylabs/prism/internal/config"
 	"github.com/roozylabs/prism/internal/database"
@@ -46,6 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
+	setupLogging(cfg)
 	// The migrator job does not handle secrets, so only the server validates them.
 	if !*migrateOnly {
 		if err := cfg.Validate(); err != nil {
@@ -138,12 +139,12 @@ func main() {
 
 	// Proxy
 	cooldown := goredis.NewCooldownStore(rdb)
-	telemetry := goredis.NewModelTelemetryStore(rdb)
+	modelTelemetry := goredis.NewModelTelemetryStore(rdb)
 	budgetMgr := proxy.NewBudgetManager(budgetRepo)
 	healthStore := proxy.NewProviderHealthStore(requestLogRepo, 30*time.Second)
 	idemStore := proxy.NewIdempotencyStore(rdb)
 	router := proxy.NewRouter(modelRepo, providerRepo, credentialRepo, settingRepo, healthStore)
-	engine := proxy.NewEngine(router, credentialRepo, cooldown, telemetry, eventPublisher, cfg.EncryptionKey, cfg.MaxRetries, cfg.CooldownSeconds, budgetMgr, routingPolicyRepo, decisionRepo, payloadRepo, toolInvocationRepo)
+	engine := proxy.NewEngine(router, credentialRepo, cooldown, modelTelemetry, eventPublisher, cfg.EncryptionKey, cfg.MaxRetries, cfg.CooldownSeconds, budgetMgr, routingPolicyRepo, decisionRepo, payloadRepo, toolInvocationRepo)
 	toolGateway := proxy.NewToolGateway(toolRepo)
 	resourceGateway := proxy.NewResourceGateway(resourceRepo)
 	mcpGateway := proxy.NewMCPGateway(mcpServerRepo, mcpToolRepo, mcpInvocationRepo)
@@ -233,7 +234,7 @@ func main() {
 	budgetHandler := handlers.NewBudgetHandler(budgetRepo)
 	budgetStatusHandler := handlers.NewBudgetStatusHandler(budgetMgr)
 	routingDecisionHandler := handlers.NewRoutingDecisionHandler(decisionRepo)
-	simulateHandler := handlers.NewSimulateHandler(modelRepo, providerRepo, credentialRepo, routingPolicyRepo, telemetry, healthStore)
+	simulateHandler := handlers.NewSimulateHandler(modelRepo, providerRepo, credentialRepo, routingPolicyRepo, modelTelemetry, healthStore)
 	finopsHandler := handlers.NewFinOpsHandler(requestLogRepo, budgetRepo, modelRepo, settingRepo, anomalyRepo)
 	finopsAnomaliesHandler := handlers.NewFinOpsAnomaliesHandler(anomalyRepo, budgetAlertRepo)
 	toolHandler := handlers.NewToolHandler(toolRepo, toolBackendRepo, toolGateway, cfg.EncryptionKey)
@@ -278,7 +279,7 @@ func main() {
 	workerMgr := workers.NewManager()
 	workerMgr.Register("cost-anomaly", 15*time.Minute, anomalyWorker(anomalyRepo, eventPublisher))
 	workerMgr.Register("budget-alert", 2*time.Minute, budgetAlertWorker(budgetRepo, budgetAlertRepo, eventPublisher))
-	workerMgr.Register("latency-flush", 1*time.Hour, latencyFlushWorker(telemetry, modelRepo, modelLatencyRepo))
+	workerMgr.Register("latency-flush", 1*time.Hour, latencyFlushWorker(modelTelemetry, modelRepo, modelLatencyRepo))
 	workerMgr.Register("retention-cleanup", 1*time.Hour, workers.NewRetentionWorker(
 		repository.NewRetentionRepository(sqlDB), workers.RetentionPolicies(cfg.Retention)).Run)
 	workerMgr.Register("credential-recovery", 1*time.Minute, workers.NewCredentialRecoveryWorker(credentialRepo, cooldown).Run)
@@ -288,10 +289,12 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// gin.Default's logger prints full query strings, which carry SSE session
-	// tokens and OAuth codes.
+	// The correlation id comes first so the access log and every handler see
+	// it; the access log is a JSON record with sensitive query values
+	// redacted (gin.Default's logger prints full query strings, which carry
+	// SSE session tokens and OAuth codes).
 	r := gin.New()
-	r.Use(middleware.RequestLogger(), gin.Recovery())
+	r.Use(middleware.CorrelationMiddleware(), middleware.RequestLogger(slog.Default()), gin.Recovery())
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		log.Fatalf("invalid TRUSTED_PROXIES: %v", err)
 	}
@@ -303,10 +306,14 @@ func main() {
 	r.Use(middleware.CORSMiddleware())
 	r.Use(middleware.MaxBodyBytes(cfg.MaxRequestBodyBytes))
 
-	// Health check, Readiness check & OTel Prometheus Metrics (public)
+	// Health and readiness are public; /metrics needs METRICS_TOKEN outside
+	// development, since nginx proxies every path.
 	r.GET("/health", healthHandler.Check)
 	r.GET("/ready", healthHandler.Ready)
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	if cfg.MetricsToken == "" && !cfg.IsDevelopment() {
+		log.Printf("metrics: /metrics answers 404; set METRICS_TOKEN to let Prometheus scrape it")
+	}
+	r.GET("/metrics", middleware.MetricsGuard(cfg.MetricsToken, cfg.IsDevelopment()), telemetry.PrometheusHandler())
 
 	// API routes group
 	api := r.Group("/api")
@@ -598,6 +605,20 @@ func main() {
 	if err := engine.Shutdown(effectsCtx); err != nil {
 		log.Printf("Background writes not finished: %v (%d dropped during run)", err, engine.SideEffectsDropped())
 	}
+}
+
+// setupLogging sends the standard log package and slog through one handler,
+// so every line the process writes is a JSON record (or text in development)
+// with a level and a timestamp, and the access log can carry request_id.
+func setupLogging(cfg *config.Config) {
+	opts := &slog.HandlerOptions{Level: slog.LevelInfo}
+	var handler slog.Handler
+	if cfg.LogFormat == "text" {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	}
+	slog.SetDefault(slog.New(handler).With(slog.String("service", "prism-api")))
 }
 
 // runServer serves until ctx is done, then stops accepting connections and
