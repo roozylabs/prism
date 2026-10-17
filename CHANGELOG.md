@@ -5,6 +5,16 @@ All notable changes to the **RoozyLabs Prism** project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Dashboard test suite** (audit T1): Vitest with jsdom and Testing Library (`pnpm test` in `apps/app`, also `pnpm test:app` at the root) covering the gateway key flow (create dialog validation, one-time secret reveal, paginated key client), pagination (`DataTable` client and server modes, `fetchAllPages`), auth (login and signup schemas, Turnstile hook, Next.js middleware redirects, API client auth/tenant headers and 401 handling) and API error parsing. The app CI workflow runs the suite before the build.
+- **Handler and repository tests** (audit T2): DB-backed tests for the budget, gateway key, routing policy, logs, dashboard, agent, model, credential and onboarding handlers, and for the billing, budget, routing policy, request log, audit trail, gateway key and MCP registry repositories. They assert owner scoping, validation and the response shapes the dashboard relies on, and skip when `DATABASE_URL` is unset.
+
+### Fixed
+- **Agent statistics failed for any agent with traffic**: `GET /api/agents/{id}/stats` scanned the numeric average latency into an integer and answered 500 once a request had been logged; the average is now rounded in SQL.
+- **Routing policies saved without weights or constraints**: the repository wrote an empty string into the `jsonb` columns, which Postgres rejects; an absent map is stored as `{}`.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added
