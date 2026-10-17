@@ -29,7 +29,10 @@ type CredentialHandler struct {
 	cooldownStore *goredis.CooldownStore
 	publisher     *goredis.EventPublisher
 	encKey        string
+	audit         *AdminAudit
 }
+
+func (h *CredentialHandler) SetAuditLog(a *AdminAudit) { h.audit = a }
 
 func NewCredentialHandler(
 	credentials *repository.CredentialRepository,
@@ -249,6 +252,7 @@ func (h *CredentialHandler) Create(c *gin.Context) {
 		httputil.RespondInternalError(c, "Failed to create credential", err, "CREDENTIAL_CREATE_FAILED")
 		return
 	}
+	h.audit.Record(c, "credential.create", "credential", cred.ID, map[string]any{"name": cred.Name, "providerId": cred.ProviderID, "authType": cred.AuthType, "keyPrefix": cred.KeyPrefix})
 	c.JSON(http.StatusCreated, cred)
 }
 
@@ -373,6 +377,7 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 		httputil.RespondInternalError(c, "Failed to update credential", err, "CREDENTIAL_UPDATE_FAILED")
 		return
 	}
+	h.audit.Record(c, "credential.update", "credential", existing.ID, map[string]any{"name": existing.Name, "enabled": existing.Enabled, "priority": existing.Priority})
 	c.JSON(http.StatusOK, existing)
 }
 
@@ -434,6 +439,7 @@ func (h *CredentialHandler) Delete(c *gin.Context) {
 		_ = h.cooldownStore.DeleteAccessToken(c.Request.Context(), credID)
 		_ = h.cooldownStore.DeleteCredentialQuota(c.Request.Context(), credID)
 	}
+	h.audit.Record(c, "credential.delete", "credential", credID, map[string]any{"name": cred.Name, "providerId": cred.ProviderID})
 
 	c.Status(http.StatusNoContent)
 }
@@ -491,6 +497,7 @@ func (h *CredentialHandler) Reveal(c *gin.Context) {
 		httputil.RespondNotFound(c, "Credential not found", err, "CREDENTIAL_NOT_FOUND")
 		return
 	}
+	h.audit.Record(c, "credential.reveal", "credential", cred.ID, map[string]any{"name": cred.Name})
 	c.JSON(http.StatusOK, gin.H{
 		"id":   cred.ID,
 		"name": cred.Name,

@@ -29,8 +29,10 @@ func (r *AuditTrailRepository) CreateAuditLog(ctx context.Context, item *models.
 	if item.Status == "" {
 		item.Status = "success"
 	}
+	// Every entry belongs to one organization; an unscoped row would show
+	// up in every tenant's log.
 	if item.OrganizationID == "" {
-		item.OrganizationID = "org_default"
+		return fmt.Errorf("audit log: organization is required for action %q", item.Action)
 	}
 	query := `
 		INSERT INTO audit_logs (
@@ -198,17 +200,30 @@ func (r *AuditTrailRepository) FindByID(ctx context.Context, id, userID string) 
 	return &a, nil
 }
 
+// ListAuditLogs returns one organization's admin audit entries, newest
+// first, with the total matching the filters. Entries are strictly scoped:
+// rows without an organization are nobody's.
 func (r *AuditTrailRepository) ListAuditLogs(ctx context.Context, orgID string, req models.AuditExportRequest, limit, offset int) ([]models.AuditLogItem, int, error) {
-	query := `SELECT id, org_id, actor_id, actor_email, action, resource, resource_id, status, COALESCE(details_json, ''), COALESCE(actor_ip, ''), COALESCE(actor_user_agent, ''), created_at FROM audit_logs WHERE 1=1`
-	countQuery := `SELECT COUNT(*) FROM audit_logs WHERE 1=1`
-	var args []interface{}
-	paramIdx := 1
+	if orgID == "" {
+		return nil, 0, fmt.Errorf("audit log: organization is required")
+	}
+	query := `SELECT id, org_id, actor_id, COALESCE(actor_email, ''), action, COALESCE(resource, ''), COALESCE(resource_id, ''), COALESCE(status, ''), COALESCE(details_json, ''), COALESCE(actor_ip, ''), COALESCE(actor_user_agent, ''), created_at FROM audit_logs WHERE org_id = $1`
+	countQuery := `SELECT COUNT(*) FROM audit_logs WHERE org_id = $1`
+	args := []interface{}{orgID}
+	paramIdx := 2
 
-	if orgID != "" {
-		clause := fmt.Sprintf(" AND (org_id = $%d OR org_id = '' OR org_id IS NULL)", paramIdx)
+	if req.Since != nil {
+		clause := fmt.Sprintf(" AND created_at >= $%d", paramIdx)
 		query += clause
 		countQuery += clause
-		args = append(args, orgID)
+		args = append(args, *req.Since)
+		paramIdx++
+	}
+	if req.Until != nil {
+		clause := fmt.Sprintf(" AND created_at <= $%d", paramIdx)
+		query += clause
+		countQuery += clause
+		args = append(args, *req.Until)
 		paramIdx++
 	}
 
@@ -238,11 +253,10 @@ func (r *AuditTrailRepository) ListAuditLogs(ctx context.Context, orgID string, 
 
 	var total int
 	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		// Table might not exist yet or empty, return empty list gracefully
-		return []models.AuditLogItem{}, 0, nil
+		return nil, 0, fmt.Errorf("count audit logs: %w", err)
 	}
 
-	query += ` ORDER BY created_at DESC`
+	query += ` ORDER BY created_at DESC, id DESC`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", paramIdx)
 		args = append(args, limit)
@@ -258,11 +272,11 @@ func (r *AuditTrailRepository) ListAuditLogs(ctx context.Context, orgID string, 
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return []models.AuditLogItem{}, 0, nil
+		return nil, 0, fmt.Errorf("query audit logs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var items []models.AuditLogItem
+	items := []models.AuditLogItem{}
 	for rows.Next() {
 		var item models.AuditLogItem
 		if err := rows.Scan(

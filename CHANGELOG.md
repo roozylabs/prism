@@ -5,6 +5,17 @@ All notable changes to the **RoozyLabs Prism** project will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Member invitations can be accepted**: `GET /api/auth/invites/:token` describes an invitation (address, role, organization) before sign-in, `POST /api/invites/accept` joins the signed-in account whose email matches, and the dashboard's `/accept-invite` page drives it, with sign-in and sign-up returning to it. `GET /api/organizations/invites` lists pending invitations and `DELETE /api/organizations/invites/:id` revokes one; the members page shows and revokes them. One pending invitation per address per organization; members cannot be re-invited.
+- **Invitation email**: with `SMTP_HOST`, `SMTP_FROM` (and `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`) set, the invitation link is emailed to the invitee on `APP_PUBLIC_URL`. Without SMTP the link is returned to the inviter once and shown in the dashboard to pass on.
+- **Admin audit log is written**: member invitations, revocations, acceptances, role changes and removals; gateway key creation and deletion; credential creation, update, deletion and reveal; routing and governance policy changes; organization settings updates; budget changes. Each entry carries the actor, their email, the organization, the client address and user agent.
+
+### Changed
+- **Invitation tokens are stored hashed** and never returned in API responses or listings. Invitations created before this release could not be accepted and are marked expired by migration 107.
+- **Audit log export** uses `encoding/csv`, neutralises cells a spreadsheet would run as formulas, honours `startDate`/`endDate` (RFC 3339 or `YYYY-MM-DD`), and streams every matching row page by page instead of stopping at 1000. The list answers an error when the query fails instead of an empty page, and rows are strictly scoped to the organization.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added

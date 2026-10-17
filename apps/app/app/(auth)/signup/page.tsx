@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { useTheme } from 'next-themes';
@@ -20,8 +20,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useTurnstile } from '@/hooks/useTurnstile';
 import { signupSchema, SignupFormValues } from '@/features/auth/schemas/signup.schema';
 
-export default function SignUpPage() {
+function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Someone arriving from an invitation link goes back to accept it after
+  // creating the account instead of into onboarding.
+  const inviteToken = searchParams?.get('invite') || '';
+  const afterAuth = inviteToken ? `${AppRoutes.ACCEPT_INVITE}?token=${encodeURIComponent(inviteToken)}` : null;
   const { resolvedTheme } = useTheme();
   const { signup, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -42,9 +47,9 @@ export default function SignUpPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace(AppRoutes.HOME);
+      router.replace(afterAuth || AppRoutes.HOME);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router, afterAuth]);
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -80,7 +85,7 @@ export default function SignUpPage() {
         turnstileToken: activeToken && activeToken !== 'bypass' ? activeToken : undefined,
       });
       toast.success('Account created successfully! Welcome to RoozyLabs Prism.');
-      router.replace(AppRoutes.ONBOARDING);
+      router.replace(afterAuth || AppRoutes.ONBOARDING);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Registration failed. Please try again.';
@@ -279,7 +284,7 @@ export default function SignUpPage() {
           <div className="mt-6 text-center text-xs text-muted-foreground">
             Already have an account?{' '}
             <Link
-              href={AppRoutes.SIGNIN}
+              href={inviteToken ? `${AppRoutes.SIGNIN}?invite=${encodeURIComponent(inviteToken)}` : AppRoutes.SIGNIN}
               className="font-medium text-foreground hover:text-foreground underline underline-offset-4 transition-colors"
             >
               Sign in
@@ -288,5 +293,13 @@ export default function SignUpPage() {
         </CardContent>
       </Card>
     </AuthLayout>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpForm />
+    </Suspense>
   );
 }

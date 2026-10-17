@@ -43,9 +43,24 @@ type Config struct {
 	// MaxRequestBodyBytes caps every request body. Chat requests with
 	// inline images are the largest legitimate bodies.
 	MaxRequestBodyBytes int64
+	// AppPublicURL is where the dashboard is reached by users; links in
+	// emails (invitations) are built on it.
+	AppPublicURL string
+	// SMTP is how transactional mail is sent. Without SMTP_HOST nothing is
+	// sent and invitation links are handed to the inviter instead.
+	SMTP SMTPSettings
 	// Retention is how many days the retention worker keeps rows of each
 	// growing table; 0 keeps them forever.
 	Retention RetentionDays
+}
+
+// SMTPSettings holds the SMTP_* settings.
+type SMTPSettings struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
 }
 
 // RetentionDays holds the RETENTION_*_DAYS settings.
@@ -89,6 +104,14 @@ func Load() (*Config, error) {
 		TrustedProxies:      splitList(getEnvNonEmpty("TRUSTED_PROXIES", defaultTrustedProxies)),
 		TrustedPlatform:     strings.ToLower(strings.TrimSpace(getEnv("TRUSTED_PLATFORM", ""))),
 		MaxRequestBodyBytes: int64(p.int("MAX_REQUEST_BODY_MB", 20)) << 20,
+		AppPublicURL:        strings.TrimRight(strings.TrimSpace(getEnvNonEmpty("APP_PUBLIC_URL", "http://localhost:3000")), "/"),
+		SMTP: SMTPSettings{
+			Host:     strings.TrimSpace(getEnv("SMTP_HOST", "")),
+			Port:     p.int("SMTP_PORT", 587),
+			Username: getEnv("SMTP_USERNAME", ""),
+			Password: getEnv("SMTP_PASSWORD", ""),
+			From:     strings.TrimSpace(getEnv("SMTP_FROM", "")),
+		},
 
 		// Prompt text (payloads, routing decisions' prompt_preview) is kept
 		// for the shortest time; request logs back billing and analytics.

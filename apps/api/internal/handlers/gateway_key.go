@@ -15,11 +15,14 @@ import (
 type GatewayKeyHandler struct {
 	keys        *repository.GatewayKeyRepository
 	credentials *repository.CredentialRepository
+	audit       *AdminAudit
 }
 
 func NewGatewayKeyHandler(keys *repository.GatewayKeyRepository, credentials *repository.CredentialRepository) *GatewayKeyHandler {
 	return &GatewayKeyHandler{keys: keys, credentials: credentials}
 }
+
+func (h *GatewayKeyHandler) SetAuditLog(a *AdminAudit) { h.audit = a }
 
 type CreateGatewayKeyRequest struct {
 	Name          string   `json:"name" binding:"required"`
@@ -98,6 +101,7 @@ func (h *GatewayKeyHandler) Create(c *gin.Context) {
 		httputil.RespondInternalError(c, "Failed to create gateway key", err, "GATEWAY_KEY_CREATE_FAILED")
 		return
 	}
+	h.audit.Record(c, "gateway_key.create", "gateway_key", key.ID, map[string]any{"name": key.Name, "keyPrefix": key.KeyPrefix, "rateLimit": key.RateLimit})
 
 	c.JSON(http.StatusCreated, CreateGatewayKeyResponse{
 		GatewayAPIKey: *key,
@@ -126,5 +130,6 @@ func (h *GatewayKeyHandler) Delete(c *gin.Context) {
 		httputil.RespondNotFound(c, "Gateway key not found", err, "GATEWAY_KEY_NOT_FOUND")
 		return
 	}
+	h.audit.Record(c, "gateway_key.delete", "gateway_key", id, nil)
 	c.Status(http.StatusNoContent)
 }

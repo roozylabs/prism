@@ -30,11 +30,14 @@ type settingStore interface {
 // but cannot be changed through the API.
 type SettingsHandler struct {
 	settings settingStore
+	audit    *AdminAudit
 }
 
 func NewSettingsHandler(settings settingStore) *SettingsHandler {
 	return &SettingsHandler{settings: settings}
 }
+
+func (h *SettingsHandler) SetAuditLog(a *AdminAudit) { h.audit = a }
 
 func (h *SettingsHandler) List(c *gin.Context) {
 	orgID := middleware.GetTenantContext(c).OrgID
@@ -85,6 +88,12 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		httputil.RespondInternalError(c, "Failed to update settings", err, "SETTINGS_UPDATE_FAILED")
 		return
 	}
+	// Keys only: values may be credentials or endpoints.
+	keys := make([]string, 0, len(req.Settings))
+	for k := range req.Settings {
+		keys = append(keys, k)
+	}
+	h.audit.Record(c, "settings.update", "organization_settings", orgID, map[string]any{"keys": keys})
 
 	c.JSON(http.StatusOK, gin.H{"message": "settings updated"})
 }

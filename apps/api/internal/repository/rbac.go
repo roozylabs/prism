@@ -2,9 +2,13 @@ package repository
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +20,10 @@ var (
 	ErrCannotRemoveLastOwner = errors.New("cannot remove the last owner of an organization")
 	ErrCannotDemoteLastOwner = errors.New("cannot demote the last owner of an organization")
 	ErrInvalidRole           = errors.New("invalid role specified")
+	ErrAlreadyMember         = errors.New("user is already a member of the organization")
+	ErrInviteExists          = errors.New("a pending invitation for this email already exists")
+	ErrInviteNotFound        = errors.New("invitation not found, expired or already used")
+	ErrInviteEmailMismatch   = errors.New("invitation was issued to a different email address")
 )
 
 type RBACRepository struct {
@@ -445,51 +453,200 @@ func (r *RBACRepository) CreateCustomRole(ctx context.Context, role *models.Role
 	return tx.Commit()
 }
 
-// CreateInvite stores a pending invitation. invite.RoleID may be a role slug
-// or id and is replaced by the id; unknown roles return ErrInvalidRole.
-func (r *RBACRepository) CreateInvite(ctx context.Context, invite *models.MemberInvite) error {
-	if invite.ID == "" {
-		invite.ID = uuid.New().String()
-	}
-	if invite.Token == "" {
-		invite.Token = uuid.New().String()
-	}
-	now := time.Now()
-	invite.CreatedAt = now
-	if invite.ExpiresAt.IsZero() {
-		invite.ExpiresAt = now.Add(7 * 24 * time.Hour) // 7 days
-	}
-	invite.Status = "pending"
+// HashInviteToken is how invitation tokens are stored: the raw token goes
+// into the invitation link only, the table holds its hash.
+func HashInviteToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
 
-	roleID, _, err := resolveRole(ctx, r.db, invite.OrganizationID, invite.RoleID)
-	if err != nil {
+func newInviteToken() (raw, hash string, err error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", "", fmt.Errorf("invite token: %w", err)
+	}
+	raw = hex.EncodeToString(b[:])
+	return raw, HashInviteToken(raw), nil
+}
+
+const inviteSelect = `SELECT i.id, i.org_id, i.role_id, COALESCE(r.slug, ''), i.email, i.token, i.status,
+	COALESCE(i.invited_by, ''), COALESCE(i.accepted_by, ''), i.accepted_at, i.expires_at, i.created_at
+	FROM member_invites i LEFT JOIN roles r ON r.id = i.role_id`
+
+func scanInvite(row interface{ Scan(...any) error }, inv *models.MemberInvite) error {
+	var acceptedAt sql.NullTime
+	if err := row.Scan(&inv.ID, &inv.OrganizationID, &inv.RoleID, &inv.Role, &inv.Email, &inv.Token, &inv.Status,
+		&inv.InvitedBy, &inv.AcceptedBy, &acceptedAt, &inv.ExpiresAt, &inv.CreatedAt); err != nil {
 		return err
 	}
-	invite.RoleID = roleID
-
-	query := `
-		INSERT INTO member_invites (id, org_id, role_id, email, token, status, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
-	_, err = r.db.ExecContext(ctx, query, invite.ID, invite.OrganizationID, invite.RoleID, invite.Email, invite.Token, invite.Status, invite.ExpiresAt, invite.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("create member invite: %w", err)
+	if acceptedAt.Valid {
+		t := acceptedAt.Time
+		inv.AcceptedAt = &t
 	}
 	return nil
 }
 
-func (r *RBACRepository) GetInviteByToken(ctx context.Context, token string) (*models.MemberInvite, error) {
-	query := `
-		SELECT id, org_id, role_id, email, token, status, expires_at, created_at
-		FROM member_invites
-		WHERE token = $1 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
-	`
-	row := r.db.QueryRowContext(ctx, query, token)
-	var inv models.MemberInvite
-	err := row.Scan(&inv.ID, &inv.OrganizationID, &inv.RoleID, &inv.Email, &inv.Token, &inv.Status, &inv.ExpiresAt, &inv.CreatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("get invite by token: %w", err)
+// CreateInvite stores a pending invitation and returns the raw token for the
+// invitation link; only its hash is kept. invite.RoleID may be a role slug or
+// id and is replaced by the id. An address that already belongs to a member
+// returns ErrAlreadyMember, one with a pending invitation ErrInviteExists.
+func (r *RBACRepository) CreateInvite(ctx context.Context, invite *models.MemberInvite) (string, error) {
+	invite.Email = strings.ToLower(strings.TrimSpace(invite.Email))
+	if invite.ID == "" {
+		invite.ID = uuid.New().String()
 	}
+	now := time.Now()
+	invite.CreatedAt = now
+	if invite.ExpiresAt.IsZero() {
+		invite.ExpiresAt = now.Add(7 * 24 * time.Hour)
+	}
+	invite.Status = "pending"
+
+	roleID, roleSlug, err := resolveRole(ctx, r.db, invite.OrganizationID, invite.RoleID)
+	if err != nil {
+		return "", err
+	}
+	invite.RoleID = roleID
+	invite.Role = roleSlug
+
+	var members int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM organization_members om JOIN "user" u ON u.id = om.user_id
+		 WHERE om.org_id = $1 AND lower(u.email) = $2`, invite.OrganizationID, invite.Email,
+	).Scan(&members); err != nil {
+		return "", fmt.Errorf("check membership: %w", err)
+	}
+	if members > 0 {
+		return "", ErrAlreadyMember
+	}
+
+	raw, hash, err := newInviteToken()
+	if err != nil {
+		return "", err
+	}
+	invite.Token = hash
+
+	_, err = r.db.ExecContext(ctx,
+		`INSERT INTO member_invites (id, org_id, role_id, email, token, status, invited_by, expires_at, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)`,
+		invite.ID, invite.OrganizationID, invite.RoleID, invite.Email, invite.Token, invite.Status, invite.InvitedBy, invite.ExpiresAt, invite.CreatedAt)
+	if err != nil {
+		if IsUniqueViolation(err) {
+			return "", ErrInviteExists
+		}
+		return "", fmt.Errorf("create member invite: %w", err)
+	}
+	return raw, nil
+}
+
+// ListPendingInvites returns the organization's invitations that can still
+// be accepted, newest first.
+func (r *RBACRepository) ListPendingInvites(ctx context.Context, orgID string) ([]models.MemberInvite, error) {
+	rows, err := r.db.QueryContext(ctx, inviteSelect+`
+		WHERE i.org_id = $1 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP
+		ORDER BY i.created_at DESC`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list invites: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	invites := []models.MemberInvite{}
+	for rows.Next() {
+		var inv models.MemberInvite
+		if err := scanInvite(rows, &inv); err != nil {
+			return nil, err
+		}
+		invites = append(invites, inv)
+	}
+	return invites, rows.Err()
+}
+
+// RevokeInvite withdraws a pending invitation. sql.ErrNoRows means there is
+// no pending invitation with that id in the organization.
+func (r *RBACRepository) RevokeInvite(ctx context.Context, orgID, inviteID string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE member_invites SET status = 'revoked' WHERE id = $1 AND org_id = $2 AND status = 'pending'`,
+		inviteID, orgID)
+	if err != nil {
+		return fmt.Errorf("revoke invite: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// PreviewInvite describes a pending invitation to its holder, before they
+// sign in: the address it was sent to, the role and the organization's name.
+func (r *RBACRepository) PreviewInvite(ctx context.Context, rawToken string) (*models.InvitePreview, error) {
+	var p models.InvitePreview
+	err := r.db.QueryRowContext(ctx,
+		`SELECT i.email, COALESCE(r.slug, ''), COALESCE(o.name, ''), i.expires_at
+		 FROM member_invites i
+		 LEFT JOIN roles r ON r.id = i.role_id
+		 LEFT JOIN organizations o ON o.id = i.org_id
+		 WHERE i.token = $1 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP`,
+		HashInviteToken(rawToken),
+	).Scan(&p.Email, &p.Role, &p.OrganizationName, &p.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrInviteNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("preview invite: %w", err)
+	}
+	return &p, nil
+}
+
+// AcceptInvite makes the user a member with the invited role, marks the
+// invitation accepted and, for a user who has not been onboarded, makes the
+// organization their primary one so onboarding is skipped. The signed-in
+// user's email must be the invited address. A user who is already a member
+// keeps their current role.
+func (r *RBACRepository) AcceptInvite(ctx context.Context, rawToken, userID, userEmail string) (*models.MemberInvite, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var inv models.MemberInvite
+	err = scanInvite(tx.QueryRowContext(ctx, inviteSelect+`
+		WHERE i.token = $1 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP
+		FOR UPDATE OF i`, HashInviteToken(rawToken)), &inv)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrInviteNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load invite: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(userEmail), inv.Email) {
+		return nil, ErrInviteEmailMismatch
+	}
+
+	now := time.Now()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO organization_members (id, org_id, user_id, role_id, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $5)
+		 ON CONFLICT (org_id, user_id) DO NOTHING`,
+		uuid.New().String(), inv.OrganizationID, userID, inv.RoleID, now); err != nil {
+		return nil, fmt.Errorf("add member: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE member_invites SET status = 'accepted', accepted_by = $2, accepted_at = $3 WHERE id = $1`,
+		inv.ID, userID, now); err != nil {
+		return nil, fmt.Errorf("mark invite accepted: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE "user" SET is_onboarded = true, org_id = $2, primary_role = $3, updated_at = NOW()
+		 WHERE id = $1 AND is_onboarded = false`,
+		userID, inv.OrganizationID, inv.Role); err != nil {
+		return nil, fmt.Errorf("onboard invited user: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	inv.Status = "accepted"
+	inv.AcceptedBy = userID
+	inv.AcceptedAt = &now
 	return &inv, nil
 }
 

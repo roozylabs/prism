@@ -14,6 +14,10 @@ export async function middleware(request: NextRequest) {
 
   const isAuthPage = pathname === '/signin' || pathname === '/signup';
   const isOnboardingPage = pathname === '/onboarding';
+  // An invitation link is opened by people without an account as well as by
+  // signed-in users who have not been onboarded; the page handles both.
+  const isInvitePage = pathname === '/accept-invite';
+  const inviteToken = request.nextUrl.searchParams.get('invite');
   const isStaticAsset =
     pathname.startsWith('/_next') ||
     pathname.includes('favicon.ico');
@@ -35,9 +39,12 @@ export async function middleware(request: NextRequest) {
   }
 
   // Restrict protected pages if no auth_token cookie
-  if (!token && !isAuthPage) {
+  if (!token && !isAuthPage && !isInvitePage) {
     const signinUrl = new URL('/signin', request.url);
     return NextResponse.redirect(signinUrl);
+  }
+  if (isInvitePage) {
+    return NextResponse.next();
   }
 
   // Server-side onboarding check: prevents any visual delay / dashboard flash
@@ -60,6 +67,13 @@ export async function middleware(request: NextRequest) {
         if (!isOnboarded && !isOnboardingPage) {
           const onboardingUrl = new URL('/onboarding', request.url);
           return NextResponse.redirect(onboardingUrl);
+        }
+
+        // A signed-in user following an invitation link goes back to it.
+        if (isAuthPage && inviteToken) {
+          const inviteUrl = new URL('/accept-invite', request.url);
+          inviteUrl.searchParams.set('token', inviteToken);
+          return NextResponse.redirect(inviteUrl);
         }
 
         // If user is already onboarded, redirect away from /onboarding and /signin or /signup to /
