@@ -2,6 +2,7 @@ export enum AppRoutes {
   HOME = '/',
   SIGNIN = '/signin',
   SIGNUP = '/signup',
+  ACCEPT_INVITE = '/accept-invite',
   ONBOARDING = '/onboarding',
   SANDBOX = '/sandbox',
   PROVIDERS = '/providers',

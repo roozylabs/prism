@@ -68,6 +68,9 @@ func TestProtectedRoutes_SensitiveRoutesRequirePermission(t *testing.T) {
 	expected := map[string]string{
 		"GET /organizations/members":                             "member:read",
 		"POST /organizations/invites":                            "member:invite",
+		"GET /organizations/invites":                             "member:read",
+		"DELETE /organizations/invites/:id":                      "member:invite",
+		"GET /audit-trail/logs":                                  "audit:read",
 		"PUT /organizations/members/:userId":                     "member:update",
 		"DELETE /organizations/members/:userId":                  "member:remove",
 		"GET /providers":                                         "model:read",

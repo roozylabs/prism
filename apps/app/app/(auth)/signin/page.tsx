@@ -24,6 +24,9 @@ function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const oauthError = searchParams?.get('error');
+  // Someone arriving from an invitation link goes back to accept it.
+  const inviteToken = searchParams?.get('invite') || '';
+  const afterAuth = inviteToken ? `${AppRoutes.ACCEPT_INVITE}?token=${encodeURIComponent(inviteToken)}` : AppRoutes.HOME;
   const { resolvedTheme } = useTheme();
   const { login, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -44,9 +47,9 @@ function SignInForm() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace(AppRoutes.HOME);
+      router.replace(afterAuth);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router, afterAuth]);
 
   useEffect(() => {
     if (oauthError) {
@@ -99,7 +102,7 @@ function SignInForm() {
         turnstileToken: activeToken && activeToken !== 'bypass' ? activeToken : undefined,
       });
       toast.success('Authentication successful! Welcome to RoozyLabs Prism.');
-      router.replace(AppRoutes.HOME);
+      router.replace(afterAuth);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Invalid credentials. Please try again.';

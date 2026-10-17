@@ -12,11 +12,14 @@ import (
 
 type BudgetHandler struct {
 	budgetRepo *repository.BudgetRepository
+	audit      *AdminAudit
 }
 
 func NewBudgetHandler(budgetRepo *repository.BudgetRepository) *BudgetHandler {
 	return &BudgetHandler{budgetRepo: budgetRepo}
 }
+
+func (h *BudgetHandler) SetAuditLog(a *AdminAudit) { h.audit = a }
 
 func (h *BudgetHandler) List(c *gin.Context) {
 	userID := c.GetString("userId")
@@ -82,6 +85,7 @@ func (h *BudgetHandler) Create(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Budget", "BUDGET_CREATE")
 		return
 	}
+	h.audit.Record(c, "budget.create", "budget", budget.ID, map[string]any{"name": budget.Name, "monthlyLimit": budget.MonthlyLimit, "dailyLimit": budget.DailyLimit, "hardLimit": budget.HardLimit})
 	c.JSON(http.StatusCreated, budget)
 }
 
@@ -137,6 +141,7 @@ func (h *BudgetHandler) Update(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Budget", "BUDGET_UPDATE")
 		return
 	}
+	h.audit.Record(c, "budget.update", "budget", existing.ID, map[string]any{"name": existing.Name, "monthlyLimit": existing.MonthlyLimit, "dailyLimit": existing.DailyLimit, "hardLimit": existing.HardLimit, "enabled": existing.Enabled})
 	c.JSON(http.StatusOK, existing)
 }
 
@@ -147,6 +152,7 @@ func (h *BudgetHandler) Delete(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Budget", "BUDGET_DELETE")
 		return
 	}
+	h.audit.Record(c, "budget.delete", "budget", id, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "budget deleted"})
 }
 

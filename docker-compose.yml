@@ -36,6 +36,13 @@ services:
       NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com,http://localhost:3000}
+      # Member invitations: links point at the dashboard; emailed when SMTP is set.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://app.prism.roozylabs.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       # Schema changes are applied only by the one-shot migrator below. If the
       # API containers migrated on startup too, blue and green would race each
       # other and the migrator for the same DDL locks.
@@ -97,6 +104,13 @@ services:
       NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com,http://localhost:3000}
+      # Member invitations: links point at the dashboard; emailed when SMTP is set.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://app.prism.roozylabs.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       # Schema changes are applied only by the one-shot migrator below. If the
       # API containers migrated on startup too, blue and green would race each
       # other and the migrator for the same DDL locks.

@@ -13,11 +13,14 @@ import (
 type GovernancePolicyHandler struct {
 	repo       *repository.GovernancePolicyRepository
 	rbacEngine *proxy.RBACEngine
+	audit      *AdminAudit
 }
 
 func NewGovernancePolicyHandler(repo *repository.GovernancePolicyRepository, rbacEngine *proxy.RBACEngine) *GovernancePolicyHandler {
 	return &GovernancePolicyHandler{repo: repo, rbacEngine: rbacEngine}
 }
+
+func (h *GovernancePolicyHandler) SetAuditLog(a *AdminAudit) { h.audit = a }
 
 type CreateGovernancePolicyRequest struct {
 	Name            string `json:"name" binding:"required"`
@@ -97,6 +100,7 @@ func (h *GovernancePolicyHandler) Create(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Governance policy", "GOVERNANCE_POLICY_CREATE")
 		return
 	}
+	h.audit.Record(c, "governance_policy.create", "governance_policy", policy.ID, map[string]any{"name": policy.Name, "effect": policy.Effect})
 	c.JSON(http.StatusCreated, policy)
 }
 
@@ -143,6 +147,7 @@ func (h *GovernancePolicyHandler) Update(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Governance policy", "GOVERNANCE_POLICY_UPDATE")
 		return
 	}
+	h.audit.Record(c, "governance_policy.update", "governance_policy", existing.ID, map[string]any{"name": existing.Name, "effect": existing.Effect, "enabled": existing.Enabled})
 	c.JSON(http.StatusOK, existing)
 }
 
@@ -153,6 +158,7 @@ func (h *GovernancePolicyHandler) Delete(c *gin.Context) {
 		httputil.RespondStoreError(c, err, "Governance policy", "GOVERNANCE_POLICY_DELETE")
 		return
 	}
+	h.audit.Record(c, "governance_policy.delete", "governance_policy", id, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "governance policy deleted"})
 }
 
