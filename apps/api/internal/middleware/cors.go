@@ -1,34 +1,16 @@
 package middleware
 
 import (
-	"os"
 	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-func CORSMiddleware() gin.HandlerFunc {
-	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
-	var allowedOrigins []string
-
-	if allowedOriginsEnv != "" {
-		for _, o := range strings.Split(allowedOriginsEnv, ",") {
-			o = strings.TrimSpace(o)
-			if o != "" {
-				allowedOrigins = append(allowedOrigins, o)
-			}
-		}
-	} else {
-		allowedOrigins = []string{
-			"https://app.prism.roozylabs.com",
-			"https://prism.roozylabs.com",
-			"https://api.prism.roozylabs.com",
-			"http://localhost:3000",
-			"http://127.0.0.1:3000",
-		}
-	}
-
+// CORSMiddleware answers the listed origins with credentials. The list comes
+// from config (ALLOWED_ORIGINS), which refuses "*" and local origins in
+// production.
+func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	return cors.New(cors.Config{
 		AllowOriginFunc: func(origin string) bool {
 			if origin == "" {

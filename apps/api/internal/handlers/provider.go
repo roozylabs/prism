@@ -9,6 +9,7 @@ import (
 	"github.com/roozylabs/prism/internal/httputil"
 	"github.com/roozylabs/prism/internal/models"
 	"github.com/roozylabs/prism/internal/repository"
+	"github.com/roozylabs/prism/internal/security"
 )
 
 type providerStore interface {
@@ -91,6 +92,9 @@ func (h *ProviderHandler) Create(c *gin.Context) {
 		return
 	}
 	p.UserID = c.GetString("userId")
+	if !baseURLAllowed(c, p.BaseURL) {
+		return
+	}
 
 	if err := h.providers.Create(c.Request.Context(), &p); err != nil {
 		httputil.RespondStoreError(c, err, "Provider", "PROVIDER_CREATE")
@@ -125,6 +129,9 @@ func (h *ProviderHandler) Update(c *gin.Context) {
 	// The body may not move the provider to another id or owner.
 	existing.ID = id
 	existing.UserID = userID
+	if !baseURLAllowed(c, existing.BaseURL) {
+		return
+	}
 
 	if err := h.providers.Update(c.Request.Context(), existing); err != nil {
 		httputil.RespondStoreError(c, err, "Provider", "PROVIDER_UPDATE")
@@ -189,4 +196,16 @@ func (h *ProviderHandler) ownedProvider(c *gin.Context, id, userID string) (*mod
 // isSharedProvider reports whether p is a system provider every user can use.
 func isSharedProvider(p *models.Provider) bool {
 	return p.UserID == ""
+}
+
+// baseURLAllowed answers 400 (and returns false) when a provider's base URL
+// is not a public http(s) endpoint. Gateway traffic, headers and all, goes
+// to this URL, so a user must not be able to point it at the API, Redis,
+// the database or a cloud metadata service.
+func baseURLAllowed(c *gin.Context, baseURL string) bool {
+	if err := security.ValidateOutboundURL(baseURL); err != nil {
+		httputil.RespondBadRequest(c, "baseUrl must be a public http(s) endpoint: "+err.Error(), err, "PROVIDER_BASE_URL_BLOCKED")
+		return false
+	}
+	return true
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -59,6 +60,19 @@ type Config struct {
 	MetricsToken string
 	// LogFormat is "json" (default outside development) or "text".
 	LogFormat string
+	// AllowedOrigins are the browser origins CORS answers with credentials.
+	// Production refuses "*" and local origins.
+	AllowedOrigins []string
+	// TurnstileSecretKey is Cloudflare's server-side key. Empty means the
+	// captcha is off, which production refuses unless TurnstileDisabled is
+	// set on purpose.
+	TurnstileSecretKey string
+	TurnstileDisabled  bool
+	// ResourcePostgresEnabled allows resource backends of type "postgres",
+	// which open a database connection to a host the user chooses. Off by
+	// default: with open sign-up that host could be the gateway's own
+	// database.
+	ResourcePostgresEnabled bool
 	// Retention is how many days the retention worker keeps rows of each
 	// growing table; 0 keeps them forever.
 	Retention RetentionDays
@@ -88,6 +102,11 @@ type RetentionDays struct {
 
 const defaultTrustedProxies = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"
 
+const (
+	defaultAllowedOrigins    = "https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com"
+	defaultDevAllowedOrigins = defaultAllowedOrigins + ",http://localhost:3000,http://127.0.0.1:3000"
+)
+
 // Load reads the configuration from the environment. APP_ENV defaults to
 // production, so a missing setting never relaxes secret validation or turns
 // on development features. A number or boolean that does not parse is an
@@ -100,6 +119,10 @@ func Load() (*Config, error) {
 	defaultLogFormat := "json"
 	if appEnv == "development" {
 		defaultLogFormat = "text"
+	}
+	origins := defaultAllowedOrigins
+	if appEnv == "development" {
+		origins = defaultDevAllowedOrigins
 	}
 	cfg := &Config{
 		AppEnv:          appEnv,
@@ -131,6 +154,11 @@ func Load() (*Config, error) {
 		MetricsToken: strings.TrimSpace(getEnv("METRICS_TOKEN", "")),
 		LogFormat:    strings.ToLower(strings.TrimSpace(getEnvNonEmpty("LOG_FORMAT", defaultLogFormat))),
 
+		AllowedOrigins:          splitList(getEnvNonEmpty("ALLOWED_ORIGINS", origins)),
+		TurnstileSecretKey:      strings.TrimSpace(getEnv("CLOUDFLARE_SECRET_KEY", "")),
+		TurnstileDisabled:       p.bool("TURNSTILE_DISABLED", false),
+		ResourcePostgresEnabled: p.bool("RESOURCE_POSTGRES_ENABLED", false),
+
 		// Prompt text (payloads, routing decisions' prompt_preview) is kept
 		// for the shortest time; request logs back billing and analytics.
 		Retention: RetentionDays{
@@ -159,18 +187,83 @@ func (c *Config) IsDevelopment() bool {
 	return c.AppEnv == "development"
 }
 
-// Validate checks secrets required to serve traffic. Outside development an
-// empty, weak, or publicly known ENCRYPTION_KEY is a fatal error; in
-// development it only logs a warning.
+// Validate checks what a public deployment must not run without: an
+// ENCRYPTION_KEY that is not empty, weak or published; database and Redis
+// passwords that are not the compose defaults; CORS origins that are neither
+// "*" nor local; and a Turnstile secret unless the captcha was switched off
+// on purpose. Outside development every problem is fatal; in development
+// they are logged as warnings.
 func (c *Config) Validate() error {
+	var errs []error
 	if err := utils.ValidateEncryptionKey(c.EncryptionKey); err != nil {
-		if c.IsDevelopment() {
-			log.Printf("[Config Warning] %v (allowed only because APP_ENV=development)", err)
-			return nil
-		}
-		return fmt.Errorf("invalid configuration (APP_ENV=%s): %w", c.AppEnv, err)
+		errs = append(errs, err)
 	}
-	return nil
+	errs = append(errs, c.validateDatastores()...)
+	errs = append(errs, c.validateOrigins()...)
+	if c.TurnstileSecretKey == "" && !c.TurnstileDisabled {
+		errs = append(errs, errors.New("CLOUDFLARE_SECRET_KEY is empty, so sign-up and sign-in have no captcha; set it, or TURNSTILE_DISABLED=true to run without one on purpose"))
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	err := errors.Join(errs...)
+	if c.IsDevelopment() {
+		log.Printf("[Config Warning] %v (allowed only because APP_ENV=development)", err)
+		return nil
+	}
+	return fmt.Errorf("invalid configuration (APP_ENV=%s): %w", c.AppEnv, err)
+}
+
+// weakPasswords are the values compose and the env template used to ship.
+var weakPasswords = map[string]bool{
+	"": true, "postgres": true, "redis": true, "password": true, "prism": true,
+	"changeme": true, "secret": true, "admin": true, "root": true, "example": true,
+}
+
+func (c *Config) validateDatastores() []error {
+	var errs []error
+	if pw, ok := urlPassword(c.DatabaseURL); !ok || weakPasswords[pw] {
+		errs = append(errs, errors.New("DATABASE_URL has no password or a default one (postgres, password, ...); set POSTGRES_PASSWORD to a generated secret"))
+	}
+	if pw, ok := urlPassword(c.RedisURL); !ok || weakPasswords[pw] {
+		errs = append(errs, errors.New("REDIS_URL has no password or a default one (redis, password, ...); set REDIS_PASSWORD to a generated secret"))
+	}
+	return errs
+}
+
+// urlPassword returns the password of a URL-form connection string and
+// whether one was present at all.
+func urlPassword(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.User == nil {
+		return "", false
+	}
+	return u.User.Password()
+}
+
+// localHosts are origins a public deployment must not trust with credentials.
+var localHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "0.0.0.0": true, "::1": true, "[::1]": true}
+
+func (c *Config) validateOrigins() []error {
+	if len(c.AllowedOrigins) == 0 {
+		return []error{errors.New("ALLOWED_ORIGINS is empty; list the dashboard and landing origins")}
+	}
+	var errs []error
+	for _, origin := range c.AllowedOrigins {
+		if origin == "*" {
+			errs = append(errs, errors.New(`ALLOWED_ORIGINS contains "*", which would answer any site with credentials`))
+			continue
+		}
+		u, err := url.Parse(origin)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			errs = append(errs, fmt.Errorf("ALLOWED_ORIGINS entry %q is not an origin (scheme://host[:port])", origin))
+			continue
+		}
+		if localHosts[strings.ToLower(u.Hostname())] {
+			errs = append(errs, fmt.Errorf("ALLOWED_ORIGINS entry %q is a local origin; any page on a user's machine could call the API with their session", origin))
+		}
+	}
+	return errs
 }
 
 // getEnvNonEmpty is getEnv that also falls back when the variable is set

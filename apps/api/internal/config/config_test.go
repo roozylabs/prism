@@ -10,15 +10,22 @@ import (
 func TestValidateEncryptionKey(t *testing.T) {
 	strong := "9b1f0c6e2d4a87f3e5c1b0a9d8f7e6c5b4a39281706f5e4d3c2b1a0918273645"
 
+	// Everything but the key is hardened, so only the key decides.
+	withKey := func(env, key string) *Config {
+		c := productionConfig()
+		c.AppEnv = env
+		c.EncryptionKey = key
+		return c
+	}
 	for _, env := range []string{"production", "staging", "test", ""} {
 		for _, key := range []string{"", "secret", "your-encryption-key-here"} {
-			err := (&Config{AppEnv: env, EncryptionKey: key}).Validate()
+			err := withKey(env, key).Validate()
 			assert.ErrorIs(t, err, utils.ErrInvalidKey, "env=%q key=%q", env, key)
 		}
-		assert.NoError(t, (&Config{AppEnv: env, EncryptionKey: strong}).Validate(), env)
+		assert.NoError(t, withKey(env, strong).Validate(), env)
 	}
 
-	assert.NoError(t, (&Config{AppEnv: "development", EncryptionKey: ""}).Validate())
+	assert.NoError(t, withKey("development", "").Validate())
 }
 
 func TestLoadDefaultsToProduction(t *testing.T) {

@@ -33,14 +33,16 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
       OTEL_SAMPLING_RATE: ${OTEL_SAMPLING_RATE:-}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set to a generated secret}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set to a generated secret}@redis:6379
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       CLOUDFLARE_SECRET_KEY: ${CLOUDFLARE_SECRET_KEY:-}
+      TURNSTILE_DISABLED: ${TURNSTILE_DISABLED:-false}
+      RESOURCE_POSTGRES_ENABLED: ${RESOURCE_POSTGRES_ENABLED:-false}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       TRUSTED_PLATFORM: ${TRUSTED_PLATFORM:-}
       # Days to keep rows of each growing table; empty uses the default, 0 keeps forever.
@@ -55,7 +57,7 @@ services:
       RETENTION_BUDGET_ALERTS_DAYS: ${RETENTION_BUDGET_ALERTS_DAYS:-}
       NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com,http://localhost:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com}
       # Member invitations: links point at the dashboard; emailed when SMTP is set.
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://app.prism.roozylabs.com}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -121,14 +123,16 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
       OTEL_SAMPLING_RATE: ${OTEL_SAMPLING_RATE:-}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set to a generated secret}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set to a generated secret}@redis:6379
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (generate with: openssl rand -hex 32)}"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       CLOUDFLARE_SECRET_KEY: ${CLOUDFLARE_SECRET_KEY:-}
+      TURNSTILE_DISABLED: ${TURNSTILE_DISABLED:-false}
+      RESOURCE_POSTGRES_ENABLED: ${RESOURCE_POSTGRES_ENABLED:-false}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       TRUSTED_PLATFORM: ${TRUSTED_PLATFORM:-}
       # Days to keep rows of each growing table; empty uses the default, 0 keeps forever.
@@ -143,7 +147,7 @@ services:
       RETENTION_BUDGET_ALERTS_DAYS: ${RETENTION_BUDGET_ALERTS_DAYS:-}
       NEXT_PUBLIC_CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
       CLOUDFLARE_SITE_KEY: ${NEXT_PUBLIC_CLOUDFLARE_SITE_KEY:-}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com,http://localhost:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://app.prism.roozylabs.com,https://prism.roozylabs.com,https://api.prism.roozylabs.com}
       # Member invitations: links point at the dashboard; emailed when SMTP is set.
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://app.prism.roozylabs.com}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -186,8 +190,8 @@ services:
     restart: "no"
     environment:
       APP_ENV: ${APP_ENV:-production}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set to a generated secret}@postgres:5432/${POSTGRES_DB:-prism}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set to a generated secret}@redis:6379
       RUN_MIGRATIONS: "true"
     depends_on:
       postgres:
@@ -363,7 +367,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-prism}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set to a generated secret}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
@@ -392,7 +396,7 @@ services:
     # Caps memory so Redis cannot take the host down. Nothing is evicted:
     # queued jobs and their state must not disappear, so at the cap writes
     # fail instead (see "Redis failure behaviour" in docs/INFRASTRUCTURE.md).
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redis} --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set to a generated secret} --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
@@ -400,7 +404,7 @@ services:
     networks:
       - prism-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set to a generated secret}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

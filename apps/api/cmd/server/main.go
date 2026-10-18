@@ -59,10 +59,11 @@ func main() {
 	// runtime API containers start fast and never race DDL locks.
 	if cfg.RunMigrations || *migrateOnly {
 		if err := database.RunMigrations(cfg.DatabaseURL, "./migrations"); err != nil {
-			if *migrateOnly {
-				log.Fatalf("Migration failed in migrate-only mode: %v", err)
+			if *migrateOnly || !cfg.IsDevelopment() {
+				// Serving on a stale schema is worse than not serving.
+				log.Fatalf("Migration failed: %v", err)
 			}
-			log.Printf("[Migration Warning] Database migration step returned warning: %v", err)
+			log.Printf("[Migration Warning] Database migration step returned warning: %v (continuing because APP_ENV=development)", err)
 		}
 	}
 	if *migrateOnly {
@@ -147,6 +148,7 @@ func main() {
 	engine := proxy.NewEngine(router, credentialRepo, cooldown, modelTelemetry, eventPublisher, cfg.EncryptionKey, cfg.MaxRetries, cfg.CooldownSeconds, budgetMgr, routingPolicyRepo, decisionRepo, payloadRepo, toolInvocationRepo)
 	toolGateway := proxy.NewToolGateway(toolRepo)
 	resourceGateway := proxy.NewResourceGateway(resourceRepo)
+	resourceGateway.SetPostgresEnabled(cfg.ResourcePostgresEnabled)
 	mcpGateway := proxy.NewMCPGateway(mcpServerRepo, mcpToolRepo, mcpInvocationRepo)
 	mcpGateway.SetLocalStdioEnabled(cfg.MCPLocalStdioEnabled)
 	agentGovernance := proxy.NewAgentGovernanceEngine(agentRepo)
@@ -159,7 +161,7 @@ func main() {
 	// Sign-in and sign-up: 30 requests per address per 10 minutes, and 10
 	// failed sign-ins per account per 15 minutes.
 	authHandler := handlers.NewAuthHandler(authService,
-		handlers.NewTurnstile(os.Getenv("CLOUDFLARE_SECRET_KEY"), cfg.IsDevelopment()),
+		handlers.NewTurnstile(cfg.TurnstileSecretKey, cfg.IsDevelopment()),
 		goredis.NewAttemptLimiter(rdb, "auth:attempts:ip:", 30, 10*time.Minute),
 		goredis.NewAttemptLimiter(rdb, "auth:attempts:email:", 10, 15*time.Minute))
 	providerHandler := handlers.NewProviderHandler(providerRepo, gatewayKeyRepo)
@@ -240,6 +242,7 @@ func main() {
 	toolHandler := handlers.NewToolHandler(toolRepo, toolBackendRepo, toolGateway, cfg.EncryptionKey)
 	toolGatewayHandler := handlers.NewToolGatewayHandler(toolGateway, toolInvocationRepo, eventPublisher, cfg.EncryptionKey)
 	resourceHandler := handlers.NewResourceHandler(resourceRepo, resourceBackendRepo, resourceGateway, cfg.EncryptionKey)
+	resourceHandler.SetPostgresBackends(cfg.ResourcePostgresEnabled)
 	resourceGatewayHandler := handlers.NewResourceGatewayHandler(resourceGateway, toolInvocationRepo, eventPublisher, cfg.EncryptionKey)
 	mcpHandler := handlers.NewMCPHandler(mcpServerRepo, mcpToolRepo, mcpGateway, mcpInvocationRepo, agentRepo, cfg.EncryptionKey)
 	mcpRegistryHandler := handlers.NewMCPRegistryHandler(mcpRegistryRepo)
@@ -303,7 +306,7 @@ func main() {
 	}
 
 	// CORS middleware
-	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.CORSMiddleware(cfg.AllowedOrigins))
 	r.Use(middleware.MaxBodyBytes(cfg.MaxRequestBodyBytes))
 
 	// Health and readiness are public; /metrics needs METRICS_TOKEN outside
