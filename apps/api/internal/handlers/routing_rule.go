@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/roozylabs/prism/internal/httputil"
@@ -9,13 +11,27 @@ import (
 	"github.com/roozylabs/prism/internal/repository"
 )
 
+// providerLookup checks that a rule's target provider exists and is the
+// caller's (or a system provider).
+type providerLookup interface {
+	FindByID(ctx context.Context, id string) (*models.Provider, error)
+}
+
 type RoutingRuleHandler struct {
 	routingRepo *repository.RoutingRuleRepository
+	providers   providerLookup
 }
 
 func NewRoutingRuleHandler(routingRepo *repository.RoutingRuleRepository) *RoutingRuleHandler {
 	return &RoutingRuleHandler{routingRepo: routingRepo}
 }
+
+// SetProviderStore enables the ownership check on a rule's providerId.
+func (h *RoutingRuleHandler) SetProviderStore(p providerLookup) {
+	h.providers = p
+}
+
+const maxModelPatternLen = 255
 
 func (h *RoutingRuleHandler) List(c *gin.Context) {
 	userID := c.GetString("userId")
@@ -49,12 +65,56 @@ type CreateRoutingRuleRequest struct {
 	Enabled      *bool   `json:"enabled"`
 }
 
+// validatePattern normalises a model pattern and rejects one the router
+// could not use.
+func validatePattern(pattern string) (string, bool) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || len(pattern) > maxModelPatternLen {
+		return "", false
+	}
+	// A pattern that matches nothing but itself is fine; one made only of
+	// wildcards would pin every model, which is a provider binding, not a rule.
+	if strings.Trim(pattern, "*?") == "" {
+		return "", false
+	}
+	return pattern, true
+}
+
+// checkProvider answers false (and writes the response) when providerId
+// names no provider the caller may route to.
+func (h *RoutingRuleHandler) checkProvider(c *gin.Context, userID string, providerID *string) bool {
+	if providerID == nil || *providerID == "" || h.providers == nil {
+		return true
+	}
+	p, err := h.providers.FindByID(c.Request.Context(), *providerID)
+	if err != nil || p == nil || (p.UserID != "" && p.UserID != userID) {
+		httputil.RespondBadRequest(c, "providerId does not name one of your providers", err, "PROVIDER_NOT_FOUND")
+		return false
+	}
+	return true
+}
+
 func (h *RoutingRuleHandler) Create(c *gin.Context) {
 	userID := c.GetString("userId")
 
 	var req CreateRoutingRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httputil.RespondBadRequest(c, "Invalid request payload", err, "INVALID_REQUEST_BODY")
+		return
+	}
+	pattern, ok := validatePattern(req.ModelPattern)
+	if !ok {
+		httputil.RespondBadRequest(c, "modelPattern must be a model slug or a glob such as claude-*, up to 255 characters", nil, "INVALID_MODEL_PATTERN")
+		return
+	}
+	if req.Priority < 0 {
+		httputil.RespondBadRequest(c, "priority must be 1 or higher (lower numbers win)", nil, "INVALID_PRIORITY")
+		return
+	}
+	if req.ProviderID != nil && *req.ProviderID == "" {
+		req.ProviderID = nil
+	}
+	if !h.checkProvider(c, userID, req.ProviderID) {
 		return
 	}
 
@@ -65,7 +125,7 @@ func (h *RoutingRuleHandler) Create(c *gin.Context) {
 
 	rule := &models.RoutingRule{
 		UserID:       userID,
-		ModelPattern: req.ModelPattern,
+		ModelPattern: pattern,
 		ProviderID:   req.ProviderID,
 		Priority:     req.Priority,
 		Enabled:      enabled,
@@ -103,12 +163,29 @@ func (h *RoutingRuleHandler) Update(c *gin.Context) {
 	}
 
 	if req.ModelPattern != "" {
-		existing.ModelPattern = req.ModelPattern
+		pattern, ok := validatePattern(req.ModelPattern)
+		if !ok {
+			httputil.RespondBadRequest(c, "modelPattern must be a model slug or a glob such as claude-*, up to 255 characters", nil, "INVALID_MODEL_PATTERN")
+			return
+		}
+		existing.ModelPattern = pattern
 	}
 	if req.ProviderID != nil {
-		existing.ProviderID = req.ProviderID
+		// An empty providerId clears the target.
+		if *req.ProviderID == "" {
+			existing.ProviderID = nil
+		} else {
+			if !h.checkProvider(c, userID, req.ProviderID) {
+				return
+			}
+			existing.ProviderID = req.ProviderID
+		}
 	}
 	if req.Priority != nil {
+		if *req.Priority < 1 {
+			httputil.RespondBadRequest(c, "priority must be 1 or higher (lower numbers win)", nil, "INVALID_PRIORITY")
+			return
+		}
 		existing.Priority = *req.Priority
 	}
 	if req.Enabled != nil {

@@ -45,6 +45,32 @@ func (r *RoutingRuleRepository) ListByUserID(ctx context.Context, userID string)
 	return rules, rows.Err()
 }
 
+// ListEnabledByUserID returns the rules the router applies for a user:
+// enabled ones, highest priority (lowest number) first.
+func (r *RoutingRuleRepository) ListEnabledByUserID(ctx context.Context, userID string) ([]models.RoutingRule, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, user_id, model_pattern, provider_id, priority, enabled, created_at, updated_at
+		 FROM routing_rules
+		 WHERE user_id = $1 AND enabled = true
+		 ORDER BY priority ASC, created_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var rules []models.RoutingRule
+	for rows.Next() {
+		var rule models.RoutingRule
+		if err := rows.Scan(&rule.ID, &rule.UserID, &rule.ModelPattern, &rule.ProviderID,
+			&rule.Priority, &rule.Enabled, &rule.CreatedAt, &rule.UpdatedAt); err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	return rules, rows.Err()
+}
+
 func (r *RoutingRuleRepository) GetByID(ctx context.Context, id, userID string) (*models.RoutingRule, error) {
 	var rule models.RoutingRule
 	err := r.db.QueryRowContext(ctx,

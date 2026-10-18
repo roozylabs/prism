@@ -173,9 +173,8 @@ func (o *ExecutionOrchestrator) ExecuteChatCompletions(
 			c.Header("X-Request-Id", requestID)
 			c.Header("X-Prism-Model", log.Model)
 			c.Header("X-Prism-Provider", log.ProviderType)
-			if req != nil && req.Model != "" {
-				c.Header("X-Prism-Routing-Policy", req.Model)
-			}
+			// X-Prism-Routing-Policy is set by the engine with the policy that
+			// routed a prism-auto request; it used to echo the model name here.
 			c.Header("X-Prism-Failovers", fmt.Sprintf("%d", log.RetryCount))
 		}
 

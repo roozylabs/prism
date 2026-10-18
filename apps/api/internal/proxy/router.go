@@ -25,6 +25,7 @@ type Router struct {
 	creds     *repository.CredentialRepository
 	settings  *repository.SettingRepository
 	health    *ProviderHealthStore
+	rules     routingRuleSource
 }
 
 func NewRouter(
@@ -167,27 +168,38 @@ func (r *Router) ResolveWithFallback(ctx context.Context, modelSlug string, gate
 			}
 		}
 	} else {
-		// Legacy behavior: resolve provider from model slug
-		var err error
-		model, err = r.models.FindBySlug(ctx, modelSlug)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+		// A routing rule pins the slug to one of the user's providers. The
+		// same slug can exist under several providers, so without a rule the
+		// first enabled match wins.
+		if rule := matchRoutingRule(r.rulesFor(ctx, gatewayKey.UserID), modelSlug); rule != nil {
+			if p, err := r.providers.FindByID(ctx, *rule.ProviderID); err == nil && p != nil && p.Enabled {
+				if m, err := r.models.FindBySlugAndProvider(ctx, modelSlug, p.ID); err == nil && m != nil && m.Enabled {
+					model, provider = m, p
+				}
+			}
+		}
+		if model == nil {
+			var err error
+			model, err = r.models.FindBySlug(ctx, modelSlug)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, ErrModelNotFound
+				}
+				return nil, fmt.Errorf("find model: %w", err)
+			}
+
+			if !model.Enabled {
 				return nil, ErrModelNotFound
 			}
-			return nil, fmt.Errorf("find model: %w", err)
-		}
 
-		if !model.Enabled {
-			return nil, ErrModelNotFound
-		}
+			provider, err = r.providers.FindByID(ctx, model.ProviderID)
+			if err != nil {
+				return nil, fmt.Errorf("find provider: %w", err)
+			}
 
-		provider, err = r.providers.FindByID(ctx, model.ProviderID)
-		if err != nil {
-			return nil, fmt.Errorf("find provider: %w", err)
-		}
-
-		if !provider.Enabled {
-			return nil, ErrModelNotFound
+			if !provider.Enabled {
+				return nil, ErrModelNotFound
+			}
 		}
 	}
 
@@ -376,9 +388,14 @@ func (r *Router) ResolveSemantic(
 	// Fetch active provider IDs with enabled credentials for this specific tenant
 	activeProviderIDs, _ := r.creds.ListActiveProviderIDs(ctx, userOrOrgID)
 
-	// Filter by active credentials, gateway key allowed models & provider restriction
+	// Filter by active credentials, gateway key allowed models, provider
+	// restriction and routing rules (a rule keeps a slug on one provider).
+	rules := r.rulesFor(ctx, userOrOrgID)
 	var candidates []*models.Model
 	for _, m := range allModels {
+		if rule := matchRoutingRule(rules, m.Slug); rule != nil && m.ProviderID != *rule.ProviderID {
+			continue
+		}
 		if len(activeProviderIDs) > 0 {
 			if !activeProviderIDs[m.ProviderID] {
 				continue
