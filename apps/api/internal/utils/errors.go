@@ -26,9 +26,11 @@ type ApiErrorPayload struct {
 }
 
 func RespondWithError(c *gin.Context, status int, errType string, message string, code string, policyID string, policyName string) {
-	reqID := c.GetString("requestId")
+	// The id the client sees: echoed by the correlation middleware as
+	// X-Request-ID (sanitised). The gin key may hold the row id instead.
+	reqID := c.Writer.Header().Get("X-Request-ID")
 	if reqID == "" {
-		reqID = c.GetHeader("X-Request-ID")
+		reqID = c.GetString("requestID")
 	}
 
 	payload := ApiErrorPayload{

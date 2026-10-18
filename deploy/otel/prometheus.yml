@@ -1,13 +1,22 @@
 global:
-  scrape_interval: 5s
-  evaluation_interval: 5s
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/prism-alerts.yml
 
 scrape_configs:
+  # Both blue/green API containers, over the gateway's compose network. The
+  # API's port is bound to the host's loopback only, so Prometheus must be on
+  # that network (see docker-compose.otel.yml). The token is METRICS_TOKEN
+  # from the gateway's .env, written to deploy/otel/metrics_token.
   - job_name: 'prism-gateway'
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
     static_configs:
-      - targets: ['host.docker.internal:8080', 'localhost:8080']
+      - targets: ['prism-api:8080', 'prism-api-green:8080']
 
   - job_name: 'otel-collector'
     static_configs:
       - targets: ['otel-collector:8889']
-

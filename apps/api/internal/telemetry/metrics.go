@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"log"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -55,14 +56,14 @@ func init() {
 		metric.WithDescription("Total number of requests handled by Prism Gateway"),
 	)
 	if err != nil {
-		println("[OTel Meter Error] requestCounter:", err.Error())
+		log.Printf("otel: requestCounter: %v", err)
 	}
 
 	requestErrorCounter, err = meter.Int64Counter("prism_request_errors_total",
 		metric.WithDescription("Total number of failed gateway requests"),
 	)
 	if err != nil {
-		println("[OTel Meter Error] requestErrorCounter:", err.Error())
+		log.Printf("otel: requestErrorCounter: %v", err)
 	}
 
 	requestDurationHist, err = meter.Float64Histogram("prism_request_duration_seconds",
@@ -70,7 +71,7 @@ func init() {
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		println("[OTel Meter Error] requestDurationHist:", err.Error())
+		log.Printf("otel: requestDurationHist: %v", err)
 	}
 
 	// Admission

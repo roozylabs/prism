@@ -29,6 +29,9 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
+# The node image ships an unprivileged user; nothing here needs root.
+USER node
+
 EXPOSE 3001
 
 CMD ["node", "./dist/server/entry.mjs"]
